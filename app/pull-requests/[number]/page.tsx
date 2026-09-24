@@ -54,8 +54,24 @@ export default function PullRequestDetailPage() {
   const [aiLoading, setAiLoading] =
     useState(false);
 
-  const [aiReview, setAiReview] =
-    useState("");
+  type AIReview = {
+  summary: string;
+  risk: "Low" | "Medium" | "High" | "Critical";
+  score: number;
+  findings: {
+    category: string;
+    severity: "Low" | "Medium" | "High" | "Critical";
+    title: string;
+    file: string;
+    line: number;
+    explanation: string;
+    recommendation: string;
+    suggestedFix: string;
+  }[];
+};
+
+const [aiReview, setAiReview] =
+  useState<AIReview | null>(null);
 
   const [error, setError] =
     useState("");
@@ -171,7 +187,7 @@ ${file.patch}
         );
       }
 
-      setAiReview(result.review || "");
+      setAiReview(result.review || null);
     } catch (err) {
       setError(
         err instanceof Error
@@ -348,28 +364,142 @@ ${file.patch}
         {/* AI REVIEW */}
 
         {aiReview && (
-          <section className="rounded-2xl border border-cyan-500/20 bg-cyan-500/[0.03] p-6">
-            <div className="flex items-center gap-3">
-              <div className="rounded-xl bg-cyan-500/10 p-2">
-                <Sparkles className="h-5 w-5 text-cyan-400" />
+  <section className="space-y-5">
+    {/* REVIEW HEADER */}
+
+    <div className="rounded-2xl border border-cyan-500/20 bg-cyan-500/[0.03] p-6">
+      <div className="flex flex-col gap-5 md:flex-row md:items-center md:justify-between">
+        <div className="flex items-center gap-3">
+          <div className="rounded-xl bg-cyan-500/10 p-3">
+            <Sparkles className="h-5 w-5 text-cyan-400" />
+          </div>
+
+          <div>
+            <h2 className="font-semibold">
+              AI Pull Request Review
+            </h2>
+
+            <p className="mt-1 text-xs text-zinc-500">
+              CodeIntel AI analyzed the changed code.
+            </p>
+          </div>
+        </div>
+
+        <div className="text-right">
+          <p className="text-xs text-zinc-500">
+            Review Score
+          </p>
+
+          <p className="text-3xl font-bold text-cyan-400">
+            {aiReview.score}
+            <span className="text-sm text-zinc-600">
+              /100
+            </span>
+          </p>
+        </div>
+      </div>
+
+      <div className="mt-5 flex flex-wrap gap-3">
+        <span className="rounded-full border border-white/10 bg-white/5 px-3 py-1 text-xs text-zinc-300">
+          Risk: {aiReview.risk}
+        </span>
+
+        <span className="rounded-full border border-white/10 bg-white/5 px-3 py-1 text-xs text-zinc-400">
+          {aiReview.findings.length} findings
+        </span>
+      </div>
+
+      <div className="mt-5 rounded-xl border border-white/10 bg-black/20 p-4">
+        <p className="text-sm leading-6 text-zinc-300">
+          {aiReview.summary}
+        </p>
+      </div>
+    </div>
+
+    {/* FINDINGS */}
+
+    {aiReview.findings.length === 0 ? (
+      <div className="rounded-2xl border border-green-500/20 bg-green-500/5 p-8 text-center">
+        <CheckCircle2 className="mx-auto h-10 w-10 text-green-400" />
+
+        <h3 className="mt-4 font-semibold">
+          No significant issues detected
+        </h3>
+
+        <p className="mt-2 text-sm text-zinc-500">
+          CodeIntel AI did not identify a clear bug,
+          security issue, performance problem or
+          maintainability concern in the changed code.
+        </p>
+      </div>
+    ) : (
+      <div className="space-y-4">
+        {aiReview.findings.map(
+          (finding, index) => (
+            <div
+              key={index}
+              className="rounded-2xl border border-white/10 bg-white/[0.03] p-6"
+            >
+              <div className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
+                <div>
+                  <div className="flex flex-wrap gap-2">
+                    <span className="rounded-full border border-white/10 bg-white/5 px-2.5 py-1 text-xs text-zinc-400">
+                      {finding.category}
+                    </span>
+
+                    <span className="rounded-full border border-red-500/20 bg-red-500/10 px-2.5 py-1 text-xs text-red-400">
+                      {finding.severity}
+                    </span>
+                  </div>
+
+                  <h3 className="mt-3 text-lg font-semibold">
+                    {finding.title}
+                  </h3>
+
+                  <p className="mt-2 font-mono text-xs text-zinc-600">
+                    {finding.file}:{finding.line}
+                  </p>
+                </div>
               </div>
 
-              <div>
-                <h2 className="font-semibold">
-                  AI Pull Request Review
-                </h2>
+              <div className="mt-5 grid gap-4 md:grid-cols-2">
+                <div className="rounded-xl border border-white/10 bg-black/20 p-4">
+                  <p className="text-xs font-medium text-zinc-500">
+                    Why this matters
+                  </p>
 
-                <p className="text-xs text-zinc-500">
-                  CodeIntel AI analysis
+                  <p className="mt-2 text-sm leading-6 text-zinc-300">
+                    {finding.explanation}
+                  </p>
+                </div>
+
+                <div className="rounded-xl border border-cyan-500/10 bg-cyan-500/[0.03] p-4">
+                  <p className="text-xs font-medium text-cyan-400">
+                    Recommendation
+                  </p>
+
+                  <p className="mt-2 text-sm leading-6 text-zinc-300">
+                    {finding.recommendation}
+                  </p>
+                </div>
+              </div>
+
+              <div className="mt-4">
+                <p className="mb-2 text-xs font-medium text-zinc-500">
+                  Suggested Fix
                 </p>
+
+                <pre className="overflow-x-auto rounded-xl border border-white/10 bg-black/50 p-4 font-mono text-xs leading-6 text-zinc-300">
+                  {finding.suggestedFix}
+                </pre>
               </div>
             </div>
-
-            <div className="mt-6 whitespace-pre-wrap text-sm leading-7 text-zinc-300">
-              {aiReview}
-            </div>
-          </section>
+          )
         )}
+      </div>
+    )}
+  </section>
+)}
 
         {/* PR DESCRIPTION */}
 
