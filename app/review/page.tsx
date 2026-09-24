@@ -143,7 +143,7 @@ export default function ReviewPage() {
                 </span>{" "}
                 <span className="text-purple-400">from</span>{" "}
                 <span className="text-green-400">
-                  "@/lib/database"
+                  {"\"@/lib/database\""}
                 </span>
               </CodeLine>
 
@@ -170,13 +170,13 @@ export default function ReviewPage() {
 
               <CodeLine number="5">
                 <span className="text-zinc-300">
-                  {"  "}SELECT * FROM users WHERE id = '
+                  {"  SELECT * FROM users WHERE id = '"}
                 </span>
                 <span className="rounded bg-red-500/20 px-1 text-red-300">
                   ${"id"}
                 </span>
                 <span className="text-zinc-300">
-                  '
+                  {"'"}
                 </span>
               </CodeLine>
 

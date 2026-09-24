@@ -7,7 +7,10 @@ export async function GET() {
 
     if (!token) {
       return NextResponse.json(
-        { error: "GitHub token is not configured" },
+        {
+          success: false,
+          error: "GitHub token is not configured",
+        },
         { status: 500 }
       );
     }
@@ -49,4 +52,4 @@ export async function GET() {
       { status: 500 }
     );
   }
-}c
+}
