@@ -1,4 +1,3 @@
-
 import { NextResponse } from "next/server";
 import { Octokit } from "octokit";
 
@@ -50,4 +49,4 @@ export async function GET() {
       { status: 500 }
     );
   }
-}
+}c

@@ -1,3 +1,5 @@
+"use client";
+
 import {
   ArrowLeft,
   ShieldCheck,
@@ -8,37 +10,185 @@ import {
   Bug,
   Sparkles,
   GitBranch,
+  RefreshCw,
 } from "lucide-react";
-import Link from "next/link";
 
-const issues = [
-  {
-    severity: "High",
-    title: "Potential SQL Injection",
-    file: "src/api/users.ts",
-    line: 42,
-    description:
-      "User-controlled input appears to be directly included in a database query.",
-  },
-  {
-    severity: "Medium",
-    title: "High Cyclomatic Complexity",
-    file: "src/services/auth.ts",
-    line: 87,
-    description:
-      "This function contains multiple branches and may be difficult to maintain.",
-  },
-  {
-    severity: "Low",
-    title: "Missing Input Validation",
-    file: "src/api/profile.ts",
-    line: 21,
-    description:
-      "Incoming request data should be validated before processing.",
-  },
-];
+import Link from "next/link";
+import { useEffect, useState } from "react";
+
+type AnalysisIssue = {
+  type: string;
+  severity: "High" | "Medium" | "Low";
+  message: string;
+  file: string;
+  line: number;
+};
+
+type AnalysisResult = {
+  success: boolean;
+
+  repository: {
+    name: string;
+    fullName: string;
+    branch: string;
+    url: string;
+  };
+
+  summary: {
+    filesAnalyzed: number;
+    totalSourceFiles: number;
+    lines: number;
+    functions: number;
+    imports: number;
+    complexity: number;
+    issues: number;
+    highIssues: number;
+    mediumIssues: number;
+    lowIssues: number;
+  };
+
+  issues: AnalysisIssue[];
+};
 
 export default function AnalysisPage() {
+  const [data, setData] = useState<AnalysisResult | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
+
+  useEffect(() => {
+    async function loadAnalysis() {
+      try {
+        setLoading(true);
+        setError("");
+
+        const params = new URLSearchParams(window.location.search);
+        const repo = params.get("repo");
+
+        if (!repo) {
+          throw new Error("Repository not specified.");
+        }
+
+        const response = await fetch(
+          `/api/github/analyze?repo=${encodeURIComponent(repo)}`
+        );
+
+        const result = await response.json();
+
+        if (!response.ok || !result.success) {
+          throw new Error(
+            result.error || "Failed to analyze repository."
+          );
+        }
+
+        setData(result);
+      } catch (err) {
+        console.error("Analysis error:", err);
+
+        setError(
+          err instanceof Error
+            ? err.message
+            : "Failed to load repository analysis."
+        );
+      } finally {
+        setLoading(false);
+      }
+    }
+
+    loadAnalysis();
+  }, []);
+
+  if (loading) {
+    return (
+      <main className="flex min-h-screen items-center justify-center bg-[#07070a] text-white">
+        <div className="text-center">
+          <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-xl border border-white/10 bg-white/5">
+            <RefreshCw
+              size={22}
+              className="animate-spin text-zinc-400"
+            />
+          </div>
+
+          <h2 className="mt-5 text-lg font-semibold">
+            Analyzing repository
+          </h2>
+
+          <p className="mt-2 text-sm text-zinc-500">
+            Fetching source code and running static analysis...
+          </p>
+        </div>
+      </main>
+    );
+  }
+
+  if (error || !data) {
+    return (
+      <main className="flex min-h-screen items-center justify-center bg-[#07070a] px-6 text-white">
+        <div className="w-full max-w-lg rounded-2xl border border-red-500/20 bg-red-500/5 p-8 text-center">
+          <AlertTriangle className="mx-auto text-red-400" size={30} />
+
+          <h2 className="mt-4 text-xl font-semibold">
+            Analysis failed
+          </h2>
+
+          <p className="mt-2 text-sm text-zinc-400">
+            {error || "Unable to load analysis."}
+          </p>
+
+          <Link
+            href="/repositories"
+            className="mt-6 inline-flex rounded-xl border border-white/10 bg-white/5 px-5 py-3 text-sm font-medium hover:bg-white/10"
+          >
+            Back to repositories
+          </Link>
+        </div>
+      </main>
+    );
+  }
+
+  const { repository, summary, issues } = data;
+
+  /*
+   * These are transparent heuristic scores based on the
+   * real findings returned by our current analyzer.
+   *
+   * Later we will replace these with dedicated
+   * ESLint/Semgrep/Bandit/AST metrics.
+   */
+
+  const qualityScore = calculateScore(
+    summary.issues,
+    summary.highIssues,
+    summary.mediumIssues
+  );
+
+  const securityScore = calculateScore(
+    summary.highIssues,
+    summary.highIssues,
+    0
+  );
+
+  const maintainabilityScore = calculateScore(
+    summary.complexity,
+    Math.floor(summary.complexity / 20),
+    Math.floor(summary.complexity / 40)
+  );
+
+  const performanceScore = Math.max(
+    0,
+    Math.min(
+      100,
+      100 - Math.min(50, Math.floor(summary.complexity / 5))
+    )
+  );
+
+  const codeHealth = Math.round(
+    (qualityScore +
+      securityScore +
+      performanceScore +
+      maintainabilityScore) /
+      4
+  );
+
   return (
     <main className="min-h-screen bg-[#07070a] text-white">
       {/* Header */}
@@ -54,13 +204,18 @@ export default function AnalysisPage() {
 
             <div>
               <div className="flex items-center gap-2">
-                <GitBranch size={17} className="text-zinc-500" />
+                <GitBranch
+                  size={17}
+                  className="text-zinc-500"
+                />
 
-                <h1 className="font-semibold">codeintel-ai</h1>
+                <h1 className="font-semibold">
+                  {repository.name}
+                </h1>
               </div>
 
               <p className="mt-1 text-xs text-zinc-500">
-                Repository Analysis
+                Repository Analysis · {repository.branch}
               </p>
             </div>
           </div>
@@ -75,15 +230,16 @@ export default function AnalysisPage() {
       <section className="mx-auto max-w-7xl px-6 py-10">
         {/* Title */}
         <div>
-          <p className="text-sm text-zinc-500">Repository Intelligence</p>
+          <p className="text-sm text-zinc-500">
+            Repository Intelligence
+          </p>
 
           <h2 className="mt-2 text-3xl font-bold tracking-tight">
-            codeintel-ai
+            {repository.name}
           </h2>
 
           <p className="mt-2 max-w-2xl text-zinc-400">
-            AI-powered analysis of code quality, security, performance and
-            maintainability.
+            Real static analysis of your GitHub repository.
           </p>
         </div>
 
@@ -92,29 +248,31 @@ export default function AnalysisPage() {
           <ScoreCard
             icon={<Code2 size={19} />}
             title="Code Quality"
-            value="86"
-            description="Good"
+            value={qualityScore}
+            description={getScoreDescription(qualityScore)}
           />
 
           <ScoreCard
             icon={<ShieldCheck size={19} />}
             title="Security"
-            value="92"
-            description="Excellent"
+            value={securityScore}
+            description={getScoreDescription(securityScore)}
           />
 
           <ScoreCard
             icon={<Gauge size={19} />}
             title="Performance"
-            value="78"
-            description="Needs attention"
+            value={performanceScore}
+            description={getScoreDescription(performanceScore)}
           />
 
           <ScoreCard
             icon={<Sparkles size={19} />}
             title="Maintainability"
-            value="88"
-            description="Good"
+            value={maintainabilityScore}
+            description={getScoreDescription(
+              maintainabilityScore
+            )}
           />
         </div>
 
@@ -131,30 +289,37 @@ export default function AnalysisPage() {
                 </p>
               </div>
 
-              <span className="text-2xl font-bold">86%</span>
+              <span className="text-2xl font-bold">
+                {codeHealth}%
+              </span>
             </div>
 
             <div className="mt-6 h-3 overflow-hidden rounded-full bg-white/10">
               <div
-                className="h-full rounded-full bg-white"
-                style={{ width: "86%" }}
+                className="h-full rounded-full bg-white transition-all"
+                style={{ width: `${codeHealth}%` }}
               />
             </div>
 
-            <div className="mt-8 grid gap-4 sm:grid-cols-3">
+            <div className="mt-8 grid gap-4 sm:grid-cols-4">
+              <HealthItem
+                title="Files analyzed"
+                value={summary.filesAnalyzed.toString()}
+              />
+
+              <HealthItem
+                title="Source files"
+                value={summary.totalSourceFiles.toString()}
+              />
+
               <HealthItem
                 title="Functions"
-                value="142"
+                value={summary.functions.toString()}
               />
 
               <HealthItem
-                title="Files"
-                value="38"
-              />
-
-              <HealthItem
-                title="Dependencies"
-                value="27"
+                title="Lines"
+                value={summary.lines.toString()}
               />
             </div>
           </div>
@@ -164,18 +329,41 @@ export default function AnalysisPage() {
             <div className="flex items-center gap-2">
               <Sparkles size={18} />
 
-              <h3 className="font-semibold">AI Summary</h3>
+              <h3 className="font-semibold">Analysis Summary</h3>
             </div>
 
             <p className="mt-5 text-sm leading-7 text-zinc-400">
-              The repository has a strong overall structure with good security
-              practices. The main improvement area is reducing complexity in
-              backend services and improving input validation.
+              CodeIntel analyzed{" "}
+              <span className="text-white">
+                {summary.filesAnalyzed}
+              </span>{" "}
+              source files containing approximately{" "}
+              <span className="text-white">
+                {summary.lines}
+              </span>{" "}
+              lines of code.
             </p>
 
-            <button className="mt-6 w-full rounded-xl border border-white/10 bg-white/5 py-3 text-sm font-medium transition hover:bg-white/10">
-              Generate Detailed Report
-            </button>
+            <p className="mt-4 text-sm leading-7 text-zinc-400">
+              The analyzer detected{" "}
+              <span className="text-white">
+                {summary.issues}
+              </span>{" "}
+              issues, including{" "}
+              <span className="text-white">
+                {summary.highIssues}
+              </span>{" "}
+              high-severity findings.
+            </p>
+
+            <a
+              href={repository.url}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="mt-6 block w-full rounded-xl border border-white/10 bg-white/5 py-3 text-center text-sm font-medium transition hover:bg-white/10"
+            >
+              View GitHub Repository
+            </a>
           </div>
         </div>
 
@@ -186,26 +374,39 @@ export default function AnalysisPage() {
               <h3 className="font-semibold">Detected Issues</h3>
 
               <p className="mt-1 text-sm text-zinc-500">
-                Findings from static analysis and AI review
+                Findings generated by the current static analyzer
               </p>
             </div>
 
             <span className="rounded-full border border-white/10 px-3 py-1 text-xs text-zinc-500">
-              3 Issues
+              {summary.issues} Issues
             </span>
           </div>
 
           <div className="mt-6 space-y-3">
-            {issues.map((issue) => (
-              <Issue
-                key={`${issue.file}-${issue.line}`}
-                severity={issue.severity}
-                title={issue.title}
-                file={issue.file}
-                line={issue.line}
-                description={issue.description}
-              />
-            ))}
+            {issues.length === 0 ? (
+              <div className="rounded-xl border border-white/10 bg-black/20 p-6 text-center">
+                <CheckCircle2
+                  className="mx-auto text-zinc-400"
+                  size={24}
+                />
+
+                <p className="mt-3 text-sm text-zinc-400">
+                  No issues detected by the current analyzer.
+                </p>
+              </div>
+            ) : (
+              issues.map((issue, index) => (
+                <Issue
+                  key={`${issue.file}-${issue.line}-${index}`}
+                  severity={issue.severity}
+                  title={issue.type}
+                  file={issue.file}
+                  line={issue.line}
+                  description={issue.message}
+                />
+              ))
+            )}
           </div>
         </div>
 
@@ -214,32 +415,57 @@ export default function AnalysisPage() {
           <div className="flex items-center gap-2">
             <Sparkles size={18} />
 
-            <h3 className="font-semibold">AI Recommendations</h3>
+            <h3 className="font-semibold">
+              Automated Recommendations
+            </h3>
           </div>
 
           <div className="mt-6 grid gap-4 md:grid-cols-3">
             <Recommendation
               number="01"
-              title="Improve input validation"
-              description="Validate and sanitize external request data before processing."
+              title="Review high-severity issues"
+              description={`${summary.highIssues} high-severity findings require attention.`}
             />
 
             <Recommendation
               number="02"
-              title="Refactor complex functions"
-              description="Break large functions into smaller reusable units."
+              title="Reduce complexity"
+              description={`Current estimated complexity is ${summary.complexity}. Refactor complex control-flow where appropriate.`}
             />
 
             <Recommendation
               number="03"
-              title="Improve test coverage"
-              description="Add automated tests around authentication and API services."
+              title="Improve code quality"
+              description={`${summary.lowIssues} low-severity findings were detected by the current analyzer.`}
             />
           </div>
         </div>
       </section>
     </main>
   );
+}
+
+/* ---------------- Helpers ---------------- */
+
+function calculateScore(
+  issues: number,
+  highIssues: number,
+  mediumIssues: number
+) {
+  const score =
+    100 -
+    issues * 3 -
+    highIssues * 10 -
+    mediumIssues * 5;
+
+  return Math.max(0, Math.min(100, score));
+}
+
+function getScoreDescription(score: number) {
+  if (score >= 90) return "Excellent";
+  if (score >= 80) return "Good";
+  if (score >= 70) return "Needs attention";
+  return "Needs improvement";
 }
 
 function ScoreCard({
@@ -250,7 +476,7 @@ function ScoreCard({
 }: {
   icon: React.ReactNode;
   title: string;
-  value: string;
+  value: number;
   description: string;
 }) {
   return (
@@ -263,10 +489,14 @@ function ScoreCard({
       <div className="mt-4 flex items-end gap-1">
         <span className="text-4xl font-bold">{value}</span>
 
-        <span className="mb-1 text-xs text-zinc-600">/100</span>
+        <span className="mb-1 text-xs text-zinc-600">
+          /100
+        </span>
       </div>
 
-      <p className="mt-2 text-xs text-zinc-500">{description}</p>
+      <p className="mt-2 text-xs text-zinc-500">
+        {description}
+      </p>
     </div>
   );
 }
@@ -281,6 +511,7 @@ function HealthItem({
   return (
     <div className="rounded-xl border border-white/10 bg-black/20 p-4">
       <p className="text-xs text-zinc-500">{title}</p>
+
       <p className="mt-2 text-xl font-semibold">{value}</p>
     </div>
   );
