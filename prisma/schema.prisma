@@ -1,0 +1,122 @@
+generator client {
+  provider = "prisma-client"
+  output   = "../generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+model Repository {
+  id          String   @id @default(cuid())
+  githubId    String   @unique
+  name        String
+  fullName    String   @unique
+  description String?
+  language    String?
+  stars       Int      @default(0)
+  forks       Int      @default(0)
+  url         String
+  isPrivate   Boolean  @default(false)
+
+  analyses    Analysis[]
+  pullRequests PullRequest[]
+
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}
+
+model Analysis {
+  id              String   @id @default(cuid())
+  repositoryId    String
+
+  codeQuality     Int      @default(0)
+  security        Int      @default(0)
+  performance     Int      @default(0)
+  maintainability Int      @default(0)
+  codeHealth      Int      @default(0)
+
+  filesAnalyzed   Int      @default(0)
+  sourceFiles     Int      @default(0)
+  functions       Int      @default(0)
+  lines           Int      @default(0)
+  issueCount      Int      @default(0)
+
+  summary         String?
+
+  repository      Repository @relation(fields: [repositoryId], references: [id], onDelete: Cascade)
+  findings        Finding[]
+
+  createdAt       DateTime @default(now())
+}
+
+model Finding {
+  id          String   @id @default(cuid())
+  analysisId  String
+
+  type        String
+  severity    String
+  message     String
+  file        String?
+  line        Int?
+
+  analysis    Analysis @relation(fields: [analysisId], references: [id], onDelete: Cascade)
+
+  createdAt   DateTime @default(now())
+}
+
+model PullRequest {
+  id           String   @id @default(cuid())
+  repositoryId String
+
+  githubId     String   @unique
+  number       Int
+  title        String
+  body         String?
+  state        String
+  author       String
+  branch       String
+  baseBranch   String
+
+  additions    Int      @default(0)
+  deletions    Int      @default(0)
+  changedFiles Int      @default(0)
+
+  repository   Repository @relation(fields: [repositoryId], references: [id], onDelete: Cascade)
+  reviews      PRReview[]
+
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  @@unique([repositoryId, number])
+}
+
+model PRReview {
+  id            String   @id @default(cuid())
+  pullRequestId String
+
+  score         Int
+  risk          String
+  summary       String
+
+  pullRequest   PullRequest @relation(fields: [pullRequestId], references: [id], onDelete: Cascade)
+  findings      PRFinding[]
+
+  createdAt     DateTime @default(now())
+}
+
+model PRFinding {
+  id             String   @id @default(cuid())
+  reviewId       String
+
+  category       String
+  severity       String
+  title          String
+  file           String?
+  line           Int?
+  explanation    String
+  recommendation String?
+  suggestedFix   String?
+
+  review         PRReview @relation(fields: [reviewId], references: [id], onDelete: Cascade)
+}
