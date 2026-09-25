@@ -1,5 +1,7 @@
 import {
   Code2,
+  BrainCircuit,
+  ArrowRight,
   ShieldCheck,
   Gauge,
   GitPullRequest,
@@ -160,6 +162,41 @@ export default function Dashboard() {
         </div>
 
         {/* Findings */}
+
+        <section className="mt-6 rounded-2xl border border-white/10 bg-white/[0.03] p-6">
+  <div className="flex flex-col justify-between gap-5 md:flex-row md:items-center">
+    <div className="flex items-start gap-4">
+      <div className="rounded-xl border border-white/10 bg-white/5 p-3">
+        <BrainCircuit size={22} />
+      </div>
+
+      <div>
+        <p className="text-sm text-zinc-500">
+          Developer Intelligence
+        </p>
+
+        <h2 className="mt-1 text-xl font-semibold">
+          Understand your engineering profile
+        </h2>
+
+        <p className="mt-2 max-w-2xl text-sm leading-6 text-zinc-500">
+          Analyze code quality, security, performance,
+          maintainability, strengths and areas for improvement.
+        </p>
+      </div>
+    </div>
+
+    <a
+      href="/developer-intelligence"
+      className="flex items-center justify-center gap-2 rounded-xl bg-white px-5 py-3 text-sm font-medium text-black transition hover:bg-zinc-200"
+    >
+        View Intelligence
+        <ArrowRight size={16} />
+        </a>
+        </div>
+      </section>
+
+
         <div className="mt-6 rounded-2xl border border-white/10 bg-white/[0.02] p-6">
           <div className="flex items-center justify-between">
             <div>
