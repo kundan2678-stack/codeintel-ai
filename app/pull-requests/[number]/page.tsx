@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { useParams, useSearchParams } from "next/navigation";
 import Link from "next/link";
 import {
   ArrowLeft,
@@ -41,7 +42,33 @@ type PullRequest = {
   url: string;
 };
 
+type Finding = {
+  category: string;
+  severity: "Low" | "Medium" | "High" | "Critical";
+  title: string;
+  file: string;
+  line: number;
+  explanation: string;
+  recommendation: string;
+  suggestedFix: string;
+};
+
+type AIReview = {
+  summary: string;
+  risk: "Low" | "Medium" | "High" | "Critical";
+  score: number;
+  findings: Finding[];
+};
+
 export default function PullRequestDetailPage() {
+  const params = useParams();
+  const searchParams = useSearchParams();
+
+  const number = String(params.number || "");
+  const repo =
+    searchParams.get("repo") ||
+    "kundan2678-stack/codeintel-ai";
+
   const [pr, setPr] =
     useState<PullRequest | null>(null);
 
@@ -54,42 +81,22 @@ export default function PullRequestDetailPage() {
   const [aiLoading, setAiLoading] =
     useState(false);
 
-  type AIReview = {
-  summary: string;
-  risk: "Low" | "Medium" | "High" | "Critical";
-  score: number;
-  findings: {
-    category: string;
-    severity: "Low" | "Medium" | "High" | "Critical";
-    title: string;
-    file: string;
-    line: number;
-    explanation: string;
-    recommendation: string;
-    suggestedFix: string;
-  }[];
-};
-
-const [aiReview, setAiReview] =
-  useState<AIReview | null>(null);
+  const [aiReview, setAiReview] =
+    useState<AIReview | null>(null);
+    const [reviewHistory, setReviewHistory] =
+  useState<
+    {
+      id: string;
+      summary: string;
+      risk: string;
+      score: number;
+      findingsCount: number;
+      createdAt: string;
+    }[]
+  >([]);
 
   const [error, setError] =
     useState("");
-
-  const repo =
-    typeof window !== "undefined"
-      ? new URLSearchParams(
-          window.location.search
-        ).get("repo") ||
-        "kundan2678-stack/codeintel-ai"
-      : "kundan2678-stack/codeintel-ai";
-
-  const number =
-    typeof window !== "undefined"
-      ? new URLSearchParams(
-          window.location.search
-        ).get("number")
-      : null;
 
   useEffect(() => {
     if (!number) {
@@ -120,6 +127,25 @@ const [aiReview, setAiReview] =
 
         setPr(result.pullRequest);
         setFiles(result.files || []);
+
+        const reviewResponse = await fetch(
+  `/api/ai-review?repo=${encodeURIComponent(
+    repo
+  )}&number=${number}`
+);
+
+const reviewResult =
+  await reviewResponse.json();
+
+if (reviewResponse.ok && reviewResult.success) {
+  if (reviewResult.review) {
+    setAiReview(reviewResult.review);
+  }
+
+  setReviewHistory(
+    reviewResult.history || []
+  );
+}
       } catch (err) {
         setError(
           err instanceof Error
@@ -141,7 +167,7 @@ const [aiReview, setAiReview] =
 
     try {
       setAiLoading(true);
-      setAiReview("");
+      setAiReview(null);
       setError("");
 
       const diff = files
@@ -169,8 +195,11 @@ ${file.patch}
             "Content-Type": "application/json",
           },
           body: JSON.stringify({
+            repo,
+            number: pr.number,
             file: `Pull Request #${pr.number}`,
-            language: "Multi-file GitHub Pull Request",
+            language:
+              "Multi-file GitHub Pull Request",
             issue:
               "Review the following GitHub Pull Request diff for bugs, security vulnerabilities, performance problems and maintainability issues.",
             code: diff,
@@ -243,8 +272,6 @@ ${file.patch}
 
   return (
     <main className="min-h-screen bg-[#050505] text-white">
-      {/* HEADER */}
-
       <header className="border-b border-white/10">
         <div className="mx-auto max-w-7xl px-6 py-6">
           <Link
@@ -317,8 +344,6 @@ ${file.patch}
                 </div>
               </div>
 
-              {/* PR STATS */}
-
               <div className="mt-6 flex flex-wrap gap-3 text-xs">
                 <span className="rounded-lg bg-white/5 px-3 py-2 font-mono text-zinc-400">
                   {pr.branch}
@@ -332,18 +357,18 @@ ${file.patch}
                   {pr.baseBranch}
                 </span>
 
-                <span className="flex items-center gap-1 rounded-lg bg-white/5 px-3 py-2 text-zinc-400">
-                  <FileCode2 className="h-3.5 w-3.5" />
+                <span className="flex items-center gap-1.5 rounded-lg bg-white/5 px-3 py-2 text-zinc-400">
+                  <FileCode2 className="h-4 w-4" />
                   {pr.changedFiles} files
                 </span>
 
-                <span className="flex items-center gap-1 rounded-lg bg-green-500/5 px-3 py-2 text-green-400">
-                  <Plus className="h-3.5 w-3.5" />
+                <span className="flex items-center gap-1.5 rounded-lg bg-white/5 px-3 py-2 text-green-400">
+                  <Plus className="h-4 w-4" />
                   {pr.additions}
                 </span>
 
-                <span className="flex items-center gap-1 rounded-lg bg-red-500/5 px-3 py-2 text-red-400">
-                  <Minus className="h-3.5 w-3.5" />
+                <span className="flex items-center gap-1.5 rounded-lg bg-white/5 px-3 py-2 text-red-400">
+                  <Minus className="h-4 w-4" />
                   {pr.deletions}
                 </span>
               </div>
@@ -352,240 +377,216 @@ ${file.patch}
         </div>
       </header>
 
-      <div className="mx-auto max-w-7xl space-y-8 px-6 py-8">
-        {/* ERROR */}
-
+      <div className="mx-auto max-w-7xl px-6 py-8">
         {error && pr && (
-          <div className="rounded-xl border border-red-500/20 bg-red-500/5 p-4 text-sm text-red-300">
+          <div className="mb-6 rounded-xl border border-red-500/20 bg-red-500/5 p-4 text-sm text-red-300">
             {error}
           </div>
         )}
 
-        {/* AI REVIEW */}
-
         {aiReview && (
-  <section className="space-y-5">
-    {/* REVIEW HEADER */}
-
-    <div className="rounded-2xl border border-cyan-500/20 bg-cyan-500/[0.03] p-6">
-      <div className="flex flex-col gap-5 md:flex-row md:items-center md:justify-between">
-        <div className="flex items-center gap-3">
-          <div className="rounded-xl bg-cyan-500/10 p-3">
-            <Sparkles className="h-5 w-5 text-cyan-400" />
-          </div>
-
-          <div>
-            <h2 className="font-semibold">
-              AI Pull Request Review
-            </h2>
-
-            <p className="mt-1 text-xs text-zinc-500">
-              CodeIntel AI analyzed the changed code.
-            </p>
-          </div>
-        </div>
-
-        <div className="text-right">
-          <p className="text-xs text-zinc-500">
-            Review Score
-          </p>
-
-          <p className="text-3xl font-bold text-cyan-400">
-            {aiReview.score}
-            <span className="text-sm text-zinc-600">
-              /100
-            </span>
-          </p>
-        </div>
-      </div>
-
-      <div className="mt-5 flex flex-wrap gap-3">
-        <span className="rounded-full border border-white/10 bg-white/5 px-3 py-1 text-xs text-zinc-300">
-          Risk: {aiReview.risk}
-        </span>
-
-        <span className="rounded-full border border-white/10 bg-white/5 px-3 py-1 text-xs text-zinc-400">
-          {aiReview.findings.length} findings
-        </span>
-      </div>
-
-      <div className="mt-5 rounded-xl border border-white/10 bg-black/20 p-4">
-        <p className="text-sm leading-6 text-zinc-300">
-          {aiReview.summary}
-        </p>
-      </div>
-    </div>
-
-    {/* FINDINGS */}
-
-    {aiReview.findings.length === 0 ? (
-      <div className="rounded-2xl border border-green-500/20 bg-green-500/5 p-8 text-center">
-        <CheckCircle2 className="mx-auto h-10 w-10 text-green-400" />
-
-        <h3 className="mt-4 font-semibold">
-          No significant issues detected
-        </h3>
-
-        <p className="mt-2 text-sm text-zinc-500">
-          CodeIntel AI did not identify a clear bug,
-          security issue, performance problem or
-          maintainability concern in the changed code.
-        </p>
-      </div>
-    ) : (
-      <div className="space-y-4">
-        {aiReview.findings.map(
-          (finding, index) => (
-            <div
-              key={index}
-              className="rounded-2xl border border-white/10 bg-white/[0.03] p-6"
-            >
-              <div className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
-                <div>
-                  <div className="flex flex-wrap gap-2">
-                    <span className="rounded-full border border-white/10 bg-white/5 px-2.5 py-1 text-xs text-zinc-400">
-                      {finding.category}
-                    </span>
-
-                    <span className="rounded-full border border-red-500/20 bg-red-500/10 px-2.5 py-1 text-xs text-red-400">
-                      {finding.severity}
-                    </span>
-                  </div>
-
-                  <h3 className="mt-3 text-lg font-semibold">
-                    {finding.title}
-                  </h3>
-
-                  <p className="mt-2 font-mono text-xs text-zinc-600">
-                    {finding.file}:{finding.line}
-                  </p>
-                </div>
-              </div>
-
-              <div className="mt-5 grid gap-4 md:grid-cols-2">
-                <div className="rounded-xl border border-white/10 bg-black/20 p-4">
-                  <p className="text-xs font-medium text-zinc-500">
-                    Why this matters
-                  </p>
-
-                  <p className="mt-2 text-sm leading-6 text-zinc-300">
-                    {finding.explanation}
-                  </p>
-                </div>
-
-                <div className="rounded-xl border border-cyan-500/10 bg-cyan-500/[0.03] p-4">
-                  <p className="text-xs font-medium text-cyan-400">
-                    Recommendation
-                  </p>
-
-                  <p className="mt-2 text-sm leading-6 text-zinc-300">
-                    {finding.recommendation}
-                  </p>
-                </div>
-              </div>
-
-              <div className="mt-4">
-                <p className="mb-2 text-xs font-medium text-zinc-500">
-                  Suggested Fix
+          <section className="mb-8 rounded-2xl border border-cyan-500/20 bg-cyan-500/5 p-6">
+            <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
+              <div>
+                <p className="text-xs uppercase tracking-wider text-cyan-400">
+                  CodeIntel Review
                 </p>
 
-                <pre className="overflow-x-auto rounded-xl border border-white/10 bg-black/50 p-4 font-mono text-xs leading-6 text-zinc-300">
-                  {finding.suggestedFix}
-                </pre>
+                <h2 className="mt-2 text-2xl font-bold">
+                  {aiReview.score}/100
+                </h2>
+
+                <p className="mt-2 text-sm text-zinc-400">
+                  {aiReview.summary}
+                </p>
+              </div>
+
+              <div className="rounded-xl border border-white/10 bg-white/5 px-5 py-4 text-center">
+                <p className="text-xs text-zinc-500">
+                  Risk
+                </p>
+
+                <p className="mt-1 font-semibold">
+                  {aiReview.risk}
+                </p>
               </div>
             </div>
-          )
-        )}
-      </div>
-    )}
-  </section>
-)}
 
-        {/* PR DESCRIPTION */}
+            <div className="mt-6 space-y-3">
+              {aiReview.findings.length === 0 ? (
+                <div className="flex items-center gap-3 rounded-xl border border-green-500/20 bg-green-500/5 p-4">
+                  <CheckCircle2 className="text-green-400" />
+                  <span className="text-sm text-green-300">
+                    No major issues detected.
+                  </span>
+                </div>
+              ) : (
+                aiReview.findings.map(
+                  (finding, index) => (
+                    <div
+                      key={`${finding.file}-${finding.line}-${index}`}
+                      className="rounded-xl border border-white/10 bg-black/20 p-5"
+                    >
+                      <div className="flex flex-wrap items-center gap-2">
+                        <span className="rounded-full bg-red-500/10 px-2.5 py-1 text-xs text-red-300">
+                          {finding.severity}
+                        </span>
 
-        {pr?.body && (
-          <section className="rounded-2xl border border-white/10 bg-white/[0.03] p-6">
-            <h2 className="font-semibold">
-              Pull Request Description
-            </h2>
+                        <span className="rounded-full bg-white/5 px-2.5 py-1 text-xs text-zinc-400">
+                          {finding.category}
+                        </span>
+                      </div>
 
-            <p className="mt-4 whitespace-pre-wrap text-sm leading-7 text-zinc-400">
-              {pr.body}
-            </p>
-          </section>
-        )}
+                      <h3 className="mt-3 font-semibold">
+                        {finding.title}
+                      </h3>
 
-        {/* FILES */}
+                      <p className="mt-2 text-sm text-zinc-400">
+                        {finding.explanation}
+                      </p>
 
-        <section>
-          <div className="mb-5">
-            <h2 className="text-xl font-semibold">
-              Changed Files
-            </h2>
+                      <p className="mt-3 text-xs text-zinc-500">
+                        {finding.file} : line{" "}
+                        {finding.line}
+                      </p>
 
-            <p className="mt-1 text-sm text-zinc-500">
-              {files.length} files changed in this pull request.
-            </p>
-          </div>
-
-          {files.length === 0 ? (
-            <div className="rounded-2xl border border-white/10 bg-white/[0.03] p-10 text-center">
-              <CheckCircle2 className="mx-auto h-10 w-10 text-green-400" />
-
-              <p className="mt-4 text-sm text-zinc-500">
-                No changed files found.
-              </p>
-            </div>
-          ) : (
-            <div className="space-y-4">
-              {files.map((file) => (
-                <div
-                  key={file.filename}
-                  className="overflow-hidden rounded-2xl border border-white/10 bg-white/[0.03]"
-                >
-                  <div className="flex flex-col gap-3 border-b border-white/10 p-5 md:flex-row md:items-center md:justify-between">
-                    <div className="flex items-center gap-3">
-                      <FileCode2 className="h-5 w-5 text-cyan-400" />
-
-                      <div>
-                        <p className="font-mono text-sm text-zinc-200">
-                          {file.filename}
+                      <div className="mt-4 rounded-lg bg-white/5 p-3">
+                        <p className="text-xs font-medium text-zinc-300">
+                          Recommendation
                         </p>
 
-                        <p className="mt-1 text-xs text-zinc-600">
-                          {file.status}
+                        <p className="mt-1 text-sm text-zinc-500">
+                          {finding.recommendation}
                         </p>
                       </div>
                     </div>
+                  )
+                )
+              )}
+            </div>
+          </section>
+        )}
 
-                    <div className="flex gap-3 text-xs">
-                      <span className="text-green-400">
-                        +{file.additions}
-                      </span>
+        {reviewHistory.length > 0 && (
+  <section className="mb-8 rounded-2xl border border-white/10 bg-white/[0.03] p-6">
+    <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+      <div>
+        <p className="text-xs uppercase tracking-wider text-zinc-500">
+          CodeIntel
+        </p>
 
-                      <span className="text-red-400">
-                        -{file.deletions}
-                      </span>
+        <h2 className="mt-1 text-xl font-semibold">
+          Review History
+        </h2>
 
-                      <span className="text-zinc-500">
-                        {file.changes} changes
-                      </span>
-                    </div>
+        <p className="mt-1 text-sm text-zinc-500">
+          Previous automated reviews for this pull request.
+        </p>
+      </div>
+
+      <div className="rounded-xl border border-white/10 bg-white/5 px-4 py-2 text-sm text-zinc-400">
+        {reviewHistory.length}{" "}
+        {reviewHistory.length === 1
+          ? "Review"
+          : "Reviews"}
+      </div>
+    </div>
+
+    <div className="mt-6 space-y-3">
+      {reviewHistory.map((review, index) => (
+        <div
+          key={review.id}
+          className="flex flex-col gap-4 rounded-xl border border-white/10 bg-black/20 p-4 md:flex-row md:items-center md:justify-between"
+        >
+          <div className="flex items-center gap-4">
+            <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl border border-white/10 bg-white/5 font-semibold">
+              {review.score}
+            </div>
+
+            <div>
+              <div className="flex flex-wrap items-center gap-2">
+                <span className="text-sm font-medium">
+                  Review #{reviewHistory.length - index}
+                </span>
+
+                <span className="rounded-full border border-white/10 bg-white/5 px-2 py-1 text-xs text-zinc-400">
+                  {review.risk}
+                </span>
+              </div>
+
+              <p className="mt-1 text-xs text-zinc-500">
+                {new Date(
+                  review.createdAt
+                ).toLocaleString()}
+              </p>
+            </div>
+          </div>
+
+          <div className="flex items-center gap-4 text-xs">
+            <span className="text-zinc-500">
+              {review.findingsCount}{" "}
+              {review.findingsCount === 1
+                ? "finding"
+                : "findings"}
+            </span>
+
+            <span
+              className={
+                review.score >= 80
+                  ? "text-green-400"
+                  : review.score >= 60
+                    ? "text-yellow-400"
+                    : "text-red-400"
+              }
+            >
+              {review.score}/100
+            </span>
+          </div>
+        </div>
+      ))}
+    </div>
+  </section>
+)}
+
+        <section className="rounded-2xl border border-white/10 bg-white/[0.03] p-6">
+          <h2 className="text-lg font-semibold">
+            Changed Files
+          </h2>
+
+          <div className="mt-5 space-y-3">
+            {files.map((file) => (
+              <div
+                key={file.filename}
+                className="rounded-xl border border-white/10 bg-black/20 p-4"
+              >
+                <div className="flex items-center justify-between gap-4">
+                  <div className="flex min-w-0 items-center gap-3">
+                    <FileCode2 className="h-5 w-5 shrink-0 text-zinc-500" />
+
+                    <span className="truncate font-mono text-sm text-zinc-300">
+                      {file.filename}
+                    </span>
                   </div>
 
-                  {file.patch ? (
-                    <pre className="max-h-[500px] overflow-auto bg-black/40 p-5 font-mono text-xs leading-6 text-zinc-400">
-                      {file.patch}
-                    </pre>
-                  ) : (
-                    <div className="p-5 text-sm text-zinc-600">
-                      No patch available for this file.
-                    </div>
-                  )}
+                  <div className="flex shrink-0 gap-3 text-xs">
+                    <span className="text-green-400">
+                      +{file.additions}
+                    </span>
+
+                    <span className="text-red-400">
+                      -{file.deletions}
+                    </span>
+                  </div>
                 </div>
-              ))}
-            </div>
-          )}
+
+                {file.patch && (
+                  <pre className="mt-4 overflow-x-auto rounded-lg bg-black p-4 text-xs leading-6 text-zinc-400">
+                    {file.patch}
+                  </pre>
+                )}
+              </div>
+            ))}
+          </div>
         </section>
       </div>
     </main>
