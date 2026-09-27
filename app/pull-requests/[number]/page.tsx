@@ -663,25 +663,60 @@ export default function PullRequestDetailPage() {
                         {review.score}
                       </div>
 
-                      <div>
-                        <div className="flex flex-wrap items-center gap-2">
-                          <span className="text-sm font-medium">
-                            Review #
-                            {reviewHistory.length -
-                              index}
-                          </span>
+                      <Link
+  key={review.id}
+  href={`/pull-requests/${number}/reviews/${review.id}?repo=${encodeURIComponent(
+    repo
+  )}`}
+  className="block rounded-xl border border-white/10 bg-black/20 p-4 transition hover:border-cyan-500/30 hover:bg-white/[0.04]"
+>
+  <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
+    <div className="flex items-center gap-4">
+      <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl border border-white/10 bg-white/5 font-semibold">
+        {review.score}
+      </div>
 
-                          <span className="rounded-full border border-white/10 bg-white/5 px-2 py-1 text-xs text-zinc-400">
-                            {review.risk}
-                          </span>
-                        </div>
+      <div>
+        <div className="flex flex-wrap items-center gap-2">
+          <span className="text-sm font-medium">
+            Review #{reviewHistory.length - index}
+          </span>
 
-                        <p className="mt-1 text-xs text-zinc-500">
-                          {new Date(
-                            review.createdAt
-                          ).toLocaleString()}
-                        </p>
-                      </div>
+          <span className="rounded-full border border-white/10 bg-white/5 px-2 py-1 text-xs text-zinc-400">
+            {review.risk}
+          </span>
+        </div>
+
+        <p className="mt-1 text-xs text-zinc-500">
+          {new Date(
+            review.createdAt
+          ).toLocaleString()}
+        </p>
+      </div>
+    </div>
+
+    <div className="flex items-center gap-4 text-xs">
+      <span className="text-zinc-500">
+        {review.findingsCount}{" "}
+        {review.findingsCount === 1
+          ? "finding"
+          : "findings"}
+      </span>
+
+      <span
+        className={
+          review.score >= 80
+            ? "text-green-400"
+            : review.score >= 60
+              ? "text-yellow-400"
+              : "text-red-400"
+        }
+      >
+        {review.score}/100
+      </span>
+    </div>
+  </div>
+</Link>   
                     </div>
 
                     <div className="flex items-center gap-4 text-xs">
