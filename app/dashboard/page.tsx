@@ -58,6 +58,14 @@ type HistoryResponse = {
   error?: string;
 };
 
+type PRReviewStats = {
+  totalReviews: number;
+  totalFindings: number;
+  averageScore: number;
+  highRiskReviews: number;
+  criticalFindings: number;
+};
+
 const emptyMetrics = [
   {
     title: "Code Quality",
@@ -91,6 +99,14 @@ export default function Dashboard() {
   const [history, setHistory] = useState<Analysis[]>([]);
   const [loadingAnalysis, setLoadingAnalysis] = useState(true);
   const [analysisError, setAnalysisError] = useState("");
+
+  const [prStats, setPrStats] = useState<PRReviewStats>({
+    totalReviews: 0,
+    totalFindings: 0,
+    averageScore: 0,
+    highRiskReviews: 0,
+    criticalFindings: 0,
+  });
 
   async function loadRepositories() {
     try {
@@ -152,6 +168,28 @@ export default function Dashboard() {
       setHistory(analyses);
       setAnalysis(analyses.length > 0 ? analyses[0] : null);
 
+      // Load PR review statistics
+      const prResponse = await fetch(
+        `/api/pr-reviews/stats?repo=${encodeURIComponent(selectedRepo)}`,
+        {
+          cache: "no-store",
+        }
+      );
+
+      const prResult = await prResponse.json();
+
+      if (prResponse.ok && prResult.success) {
+        setPrStats(prResult.stats);
+      } else {
+        setPrStats({
+          totalReviews: 0,
+          totalFindings: 0,
+          averageScore: 0,
+          highRiskReviews: 0,
+          criticalFindings: 0,
+        });
+      }
+
       if (analyses.length === 0) {
         setAnalysisError(
           "This repository has not been analyzed yet."
@@ -159,21 +197,29 @@ export default function Dashboard() {
       }
     } catch (error) {
       console.error("Failed to load analysis:", error);
+
       setAnalysis(null);
       setHistory([]);
+
+      setPrStats({
+        totalReviews: 0,
+        totalFindings: 0,
+        averageScore: 0,
+        highRiskReviews: 0,
+        criticalFindings: 0,
+      });
+
       setAnalysisError("Failed to load analysis data.");
     } finally {
       setLoadingAnalysis(false);
     }
   }
 
-  useEffect(() => {
-    loadRepositories();
-  }, []);
 
-  useEffect(() => {
-    loadAnalysis(repo);
-  }, [repo]);
+useEffect(() => {
+  // eslint-disable-next-line react-hooks/set-state-in-effect
+  loadAnalysis(repo);
+}, [repo]);
 
   const metrics = analysis
     ? [
@@ -300,7 +346,9 @@ export default function Dashboard() {
 
           <div className="mt-3 flex items-center gap-2 text-xs text-zinc-600">
             <span className="h-1.5 w-1.5 rounded-full bg-green-500" />
+
             Currently selected:
+
             <span className="text-zinc-400">
               {repo}
             </span>
@@ -320,11 +368,12 @@ export default function Dashboard() {
                 loadingAnalysis ? "animate-spin" : ""
               }
             />
+
             Refresh Analysis
           </button>
         </div>
 
-        {/* Metrics */}
+        {/* Analysis Metrics */}
         <div className="mt-5 grid gap-4 md:grid-cols-2 lg:grid-cols-4">
           {metrics.map((metric) => {
             const Icon = metric.icon;
@@ -368,6 +417,72 @@ export default function Dashboard() {
               </div>
             );
           })}
+        </div>
+
+        {/* PR Review Metrics */}
+        <div className="mt-6">
+          <div className="mb-4">
+            <p className="text-xs uppercase tracking-wider text-zinc-500">
+              Pull Request Intelligence
+            </p>
+
+            <h3 className="mt-1 text-xl font-semibold">
+              Automated code review overview
+            </h3>
+
+            <p className="mt-1 text-sm text-zinc-500">
+              Review activity and risk signals from analyzed pull requests.
+            </p>
+          </div>
+
+          <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
+            <Stat
+              label="PR Reviews"
+              value={prStats.totalReviews}
+            />
+
+            <Stat
+              label="Average PR Score"
+              value={prStats.averageScore}
+            />
+
+            <Stat
+              label="High Risk PRs"
+              value={prStats.highRiskReviews}
+            />
+
+            <Stat
+              label="PR Findings"
+              value={prStats.totalFindings}
+            />
+          </div>
+        </div>
+
+        {/* PR Review Summary */}
+        <div className="mt-4 rounded-2xl border border-white/10 bg-white/[0.02] p-5">
+          <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
+            <div>
+              <p className="text-sm text-zinc-500">
+                Critical Security Signals
+              </p>
+
+              <h3 className="mt-1 text-2xl font-bold">
+                {prStats.criticalFindings}
+              </h3>
+
+              <p className="mt-1 text-sm text-zinc-500">
+                Critical findings detected across saved PR reviews.
+              </p>
+            </div>
+
+            <a
+              href={`/pull-requests?repo=${encodeURIComponent(repo)}`}
+              className="inline-flex items-center justify-center gap-2 rounded-xl bg-white px-5 py-3 text-sm font-medium text-black transition hover:bg-zinc-200"
+            >
+              View Pull Requests
+              <ArrowRight size={16} />
+            </a>
+          </div>
         </div>
 
         {/* Error / Empty */}
@@ -533,9 +648,8 @@ export default function Dashboard() {
                 </h2>
 
                 <p className="mt-2 max-w-2xl text-sm leading-6 text-zinc-500">
-                  Analyze code quality, security,
-                  performance, maintainability, strengths
-                  and areas for improvement.
+                  Analyze code quality, security, performance,
+                  maintainability, strengths and areas for improvement.
                 </p>
               </div>
             </div>
@@ -577,13 +691,16 @@ export default function Dashboard() {
             {recentFindings.length > 0 ? (
               recentFindings.map((finding, index) => (
                 <div
-                  key={finding.id || `${finding.message}-${index}`}
+                  key={
+                    finding.id ||
+                    `${finding.message}-${index}`
+                  }
                   className="flex items-center gap-4 rounded-xl border border-white/10 bg-black/20 p-4"
                 >
                   <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-white/5">
-                    {finding.type.toLowerCase().includes(
-                      "security"
-                    ) ? (
+                    {finding.type
+                      .toLowerCase()
+                      .includes("security") ? (
                       <ShieldCheck size={18} />
                     ) : finding.type
                         .toLowerCase()
@@ -603,9 +720,11 @@ export default function Dashboard() {
 
                     <p className="mt-1 text-xs text-zinc-500">
                       {finding.type}
+
                       {finding.file
                         ? ` • ${finding.file}`
                         : ""}
+
                       {finding.line
                         ? `:${finding.line}`
                         : ""}

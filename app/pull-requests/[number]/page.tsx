@@ -133,12 +133,87 @@ export default function PullRequestDetailPage() {
     repo
   )}&number=${number}`
 );
+{reviewHistory.length > 0 && (
+  <section className="mb-8 rounded-2xl border border-white/10 bg-white/[0.03] p-6">
+    <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+      <div>
+        <p className="text-xs uppercase tracking-wider text-zinc-500">
+          CodeIntel
+        </p>
 
+        <h2 className="mt-1 text-xl font-semibold">
+          Review History
+        </h2>
+
+        <p className="mt-1 text-sm text-zinc-500">
+          Previous automated reviews for this pull request.
+        </p>
+      </div>
+
+      <div className="rounded-xl border border-white/10 bg-white/5 px-4 py-2 text-sm text-zinc-400">
+        {reviewHistory.length}{" "}
+        {reviewHistory.length === 1 ? "Review" : "Reviews"}
+      </div>
+    </div>
+
+    <div className="mt-6 space-y-3">
+      {reviewHistory.map((review, index) => (
+        <div
+          key={review.id}
+          className="flex flex-col gap-4 rounded-xl border border-white/10 bg-black/20 p-4 md:flex-row md:items-center md:justify-between"
+        >
+          <div className="flex items-center gap-4">
+            <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl border border-white/10 bg-white/5 font-semibold">
+              {review.score}
+            </div>
+
+            <div>
+              <div className="flex flex-wrap items-center gap-2">
+                <span className="text-sm font-medium">
+                  Review #{reviewHistory.length - index}
+                </span>
+
+                <span className="rounded-full border border-white/10 bg-white/5 px-2 py-1 text-xs text-zinc-400">
+                  {review.risk}
+                </span>
+              </div>
+
+              <p className="mt-1 text-xs text-zinc-500">
+                {new Date(review.createdAt).toLocaleString()}
+              </p>
+            </div>
+          </div>
+
+          <div className="flex items-center gap-4 text-xs">
+            <span className="text-zinc-500">
+              {review.findingsCount}{" "}
+              {review.findingsCount === 1
+                ? "finding"
+                : "findings"}
+            </span>
+
+            <span
+              className={
+                review.score >= 80
+                  ? "text-green-400"
+                  : review.score >= 60
+                    ? "text-yellow-400"
+                    : "text-red-400"
+              }
+            >
+              {review.score}/100
+            </span>
+          </div>
+        </div>
+      ))}
+    </div>
+  </section>
+)}
 const reviewResult =
   await reviewResponse.json();
 
 if (reviewResponse.ok && reviewResult.success) {
-  if (reviewResult.review) {
+  if (reviewResult.review) {  
     setAiReview(reviewResult.review);
   }
 
