@@ -1,5 +1,8 @@
+
 import { NextResponse } from "next/server";
 import { Octokit } from "octokit";
+
+export const runtime = "nodejs";
 
 export async function GET(request: Request) {
   try {
@@ -54,38 +57,46 @@ export async function GET(request: Request) {
       auth: token,
     });
 
-    const response = await octokit.request(
-      "GET /repos/{owner}/{repo}/pulls",
-      {
-        owner,
-        repo: name,
-        state,
-        sort: "updated",
-        direction: "desc",
-        per_page: 30,
-      }
-    );
+    // Fetch pull request list
+    const response = await octokit.rest.pulls.list({
+      owner,
+      repo: name,
+      state,
+      sort: "updated",
+      direction: "desc",
+      per_page: 30,
+    });
 
-    const pullRequests = response.data.map(
-      (pr) => ({
-        number: pr.number,
-        title: pr.title,
-        body: pr.body,
-        state: pr.state,
-        draft: pr.draft,
-        merged:
-          pr.merged_at !== null,
-        author:
-          pr.user?.login || "Unknown",
-        createdAt: pr.created_at,
-        updatedAt: pr.updated_at,
-        url: pr.html_url,
-        branch: pr.head.ref,
-        baseBranch: pr.base.ref,
-        changedFiles: pr.changed_files,
-        additions: pr.additions,
-        deletions: pr.deletions,
-        commits: pr.commits,
+    // Fetch detailed information for each PR
+    const pullRequests = await Promise.all(
+      response.data.map(async (pr) => {
+        const detailResponse =
+          await octokit.rest.pulls.get({
+            owner,
+            repo: name,
+            pull_number: pr.number,
+          });
+
+        const detail = detailResponse.data;
+
+        return {
+          number: detail.number,
+          title: detail.title,
+          body: detail.body,
+          state: detail.state,
+          draft: detail.draft,
+          merged: detail.merged_at !== null,
+          author: detail.user?.login || "Unknown",
+          createdAt: detail.created_at,
+          updatedAt: detail.updated_at,
+          url: detail.html_url,
+          branch: detail.head.ref,
+          baseBranch: detail.base.ref,
+          changedFiles: detail.changed_files,
+          additions: detail.additions,
+          deletions: detail.deletions,
+          commits: detail.commits,
+        };
       })
     );
 
@@ -96,10 +107,7 @@ export async function GET(request: Request) {
       pullRequests,
     });
   } catch (error) {
-    console.error(
-      "Pull Request API Error:",
-      error
-    );
+    console.error("Pull Request API Error:", error);
 
     return NextResponse.json(
       {

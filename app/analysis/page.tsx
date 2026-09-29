@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import {
   ArrowLeft,
@@ -21,7 +21,7 @@ type Severity = "Critical" | "High" | "Medium" | "Low";
 
 type Issue = {
   type: string;
-  severity: Severity | "High" | "Medium" | "Low";
+  severity: Severity;
   message: string;
   file: string;
   line: number;
@@ -40,7 +40,6 @@ type AnalysisFile = {
 type CodeAnalysis = {
   success: boolean;
   error?: string;
-
   summary?: {
     codeQuality?: number;
     security?: number;
@@ -53,7 +52,6 @@ type CodeAnalysis = {
     lines?: number;
     eslintIssues?: number;
   };
-
   issues?: Issue[];
   recommendations?: string[];
   files?: AnalysisFile[];
@@ -62,7 +60,6 @@ type CodeAnalysis = {
 type SecurityAnalysis = {
   success: boolean;
   error?: string;
-
   summary?: {
     filesAnalyzed?: number;
     totalIssues?: number;
@@ -72,7 +69,6 @@ type SecurityAnalysis = {
     low?: number;
     securityScore?: number;
   };
-
   issues?: Issue[];
 };
 
@@ -116,9 +112,7 @@ function ScoreCard({
             <Icon className="h-5 w-5 text-cyan-400" />
           </div>
 
-          <span className="text-sm text-zinc-400">
-            {title}
-          </span>
+          <span className="text-sm text-zinc-400">{title}</span>
         </div>
 
         <span className="text-xs text-zinc-500">
@@ -127,23 +121,15 @@ function ScoreCard({
       </div>
 
       <div className="mt-5 flex items-end gap-2">
-        <span className="text-4xl font-bold">
-          {score}
-        </span>
-
-        <span className="mb-1 text-zinc-500">
-          / 100
-        </span>
+        <span className="text-4xl font-bold">{score}</span>
+        <span className="mb-1 text-zinc-500">/ 100</span>
       </div>
 
       <div className="mt-4 h-2 overflow-hidden rounded-full bg-white/10">
         <div
           className="h-full rounded-full bg-cyan-400"
           style={{
-            width: `${Math.min(
-              100,
-              Math.max(0, score)
-            )}%`,
+            width: `${Math.min(100, Math.max(0, score))}%`,
           }}
         />
       </div>
@@ -169,48 +155,43 @@ export default function AnalysisPage() {
         "kundan2678-stack/codeintel-ai"
       : "kundan2678-stack/codeintel-ai";
 
-  async function loadAnalysis() {
+  const fetchAnalysisData = useCallback(async () => {
+    const encodedRepo = encodeURIComponent(repo);
+
+    const [codeResponse, securityResponse] =
+      await Promise.all([
+        fetch(`/api/github/analyze?repo=${encodedRepo}`),
+        fetch(`/api/security?repo=${encodedRepo}`),
+      ]);
+
+    const codeResult: CodeAnalysis =
+      await codeResponse.json();
+
+    const securityResult: SecurityAnalysis =
+      await securityResponse.json();
+
+    if (!codeResponse.ok || !codeResult.success) {
+      throw new Error(
+        codeResult.error || "Code analysis failed"
+      );
+    }
+
+    if (!securityResponse.ok || !securityResult.success) {
+      throw new Error(
+        securityResult.error || "Security analysis failed"
+      );
+    }
+
+    return { codeResult, securityResult };
+  }, [repo]);
+
+  const loadAnalysis = useCallback(async () => {
+    setLoading(true);
+    setError("");
+
     try {
-      setLoading(true);
-      setError("");
-
-      const encodedRepo = encodeURIComponent(repo);
-
-      const [codeResponse, securityResponse] =
-        await Promise.all([
-          fetch(
-            `/api/github/analyze?repo=${encodedRepo}`
-          ),
-          fetch(
-            `/api/security?repo=${encodedRepo}`
-          ),
-        ]);
-
-      const codeResult: CodeAnalysis =
-        await codeResponse.json();
-
-      const securityResult: SecurityAnalysis =
-        await securityResponse.json();
-
-      if (
-        !codeResponse.ok ||
-        !codeResult.success
-      ) {
-        throw new Error(
-          codeResult.error ||
-            "Code analysis failed"
-        );
-      }
-
-      if (
-        !securityResponse.ok ||
-        !securityResult.success
-      ) {
-        throw new Error(
-          securityResult.error ||
-            "Security analysis failed"
-        );
-      }
+      const { codeResult, securityResult } =
+        await fetchAnalysisData();
 
       setCodeAnalysis(codeResult);
       setSecurityAnalysis(securityResult);
@@ -223,18 +204,47 @@ export default function AnalysisPage() {
     } finally {
       setLoading(false);
     }
-  }
+  }, [fetchAnalysisData]);
 
   useEffect(() => {
-    loadAnalysis();
-  }, [repo]);
+    let cancelled = false;
+
+    async function runAnalysis() {
+      try {
+        const { codeResult, securityResult } =
+          await fetchAnalysisData();
+
+        if (!cancelled) {
+          setCodeAnalysis(codeResult);
+          setSecurityAnalysis(securityResult);
+          setError("");
+        }
+      } catch (err) {
+        if (!cancelled) {
+          setError(
+            err instanceof Error
+              ? err.message
+              : "Analysis failed"
+          );
+        }
+      } finally {
+        if (!cancelled) {
+          setLoading(false);
+        }
+      }
+    }
+
+    void runAnalysis();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [fetchAnalysisData]);
 
   const codeIssues = useMemo(() => {
     if (!codeAnalysis) return [];
 
-    const issues = [
-      ...(codeAnalysis.issues || []),
-    ];
+    const issues = [...(codeAnalysis.issues || [])];
 
     for (const file of codeAnalysis.files || []) {
       for (const issue of file.eslintIssues || []) {
@@ -254,19 +264,15 @@ export default function AnalysisPage() {
     return issues;
   }, [codeAnalysis]);
 
-  const securityIssues =
-    securityAnalysis?.issues || [];
-
-  const securitySummary =
-    securityAnalysis?.summary || {};
+  const securityIssues = securityAnalysis?.issues || [];
+  const securitySummary = securityAnalysis?.summary || {};
 
   const combinedIssues = [
     ...securityIssues,
     ...codeIssues,
   ];
 
-  const criticalCount =
-    securitySummary.critical || 0;
+  const criticalCount = securitySummary.critical || 0;
 
   const highCount =
     securitySummary.high ||
@@ -324,9 +330,7 @@ export default function AnalysisPage() {
             Analysis Failed
           </h1>
 
-          <p className="mt-3 text-zinc-400">
-            {error}
-          </p>
+          <p className="mt-3 text-zinc-400">{error}</p>
 
           <button
             onClick={loadAnalysis}
@@ -340,8 +344,7 @@ export default function AnalysisPage() {
     );
   }
 
-  const summary =
-    codeAnalysis?.summary || {};
+  const summary = codeAnalysis?.summary || {};
 
   const securityScore =
     securitySummary.securityScore ??
@@ -568,7 +571,7 @@ export default function AnalysisPage() {
                       <div className="flex flex-wrap gap-2">
                         <span
                           className={`rounded-full border px-2.5 py-1 text-xs ${severityClass(
-                            issue.severity as Severity
+                            issue.severity
                           )}`}
                         >
                           {issue.severity}
@@ -589,8 +592,7 @@ export default function AnalysisPage() {
 
                       {issue.recommendation && (
                         <p className="mt-3 text-xs text-zinc-500">
-                          Recommendation:{" "}
-                          {issue.recommendation}
+                          Recommendation: {issue.recommendation}
                         </p>
                       )}
                     </div>
@@ -614,106 +616,99 @@ export default function AnalysisPage() {
           </div>
 
           <div className="space-y-3">
-            {(codeAnalysis?.files || []).map(
-              (file) => {
-                const isOpen =
-                  expandedFile === file.path;
+            {(codeAnalysis?.files || []).map((file) => {
+              const isOpen = expandedFile === file.path;
 
-                const fileIssues = [
-                  ...(file.issues || []),
-                  ...(file.eslintIssues || []),
-                ];
+              const fileIssues = [
+                ...(file.issues || []),
+                ...(file.eslintIssues || []),
+              ];
 
-                return (
-                  <div
-                    key={file.path}
-                    className="overflow-hidden rounded-2xl border border-white/10 bg-white/[0.03]"
+              return (
+                <div
+                  key={file.path}
+                  className="overflow-hidden rounded-2xl border border-white/10 bg-white/[0.03]"
+                >
+                  <button
+                    onClick={() =>
+                      setExpandedFile(
+                        isOpen ? null : file.path
+                      )
+                    }
+                    className="flex w-full items-center justify-between p-5 text-left hover:bg-white/[0.03]"
                   >
-                    <button
-                      onClick={() =>
-                        setExpandedFile(
-                          isOpen
-                            ? null
-                            : file.path
-                        )
-                      }
-                      className="flex w-full items-center justify-between p-5 text-left hover:bg-white/[0.03]"
-                    >
-                      <div className="flex items-center gap-3">
-                        <FileCode2 className="h-5 w-5 text-cyan-400" />
+                    <div className="flex items-center gap-3">
+                      <FileCode2 className="h-5 w-5 text-cyan-400" />
 
-                        <div>
-                          <p className="font-mono text-sm">
-                            {file.path}
-                          </p>
+                      <div>
+                        <p className="font-mono text-sm">
+                          {file.path}
+                        </p>
 
-                          <p className="mt-1 text-xs text-zinc-500">
-                            {file.lines ?? 0} lines ·{" "}
-                            {file.functions ?? 0} functions ·{" "}
-                            {fileIssues.length} issues
-                          </p>
-                        </div>
+                        <p className="mt-1 text-xs text-zinc-500">
+                          {file.lines ?? 0} lines ·{" "}
+                          {file.functions ?? 0} functions ·{" "}
+                          {fileIssues.length} issues
+                        </p>
                       </div>
+                    </div>
 
-                      {isOpen ? (
-                        <ChevronUp className="h-5 w-5 text-zinc-500" />
-                      ) : (
-                        <ChevronDown className="h-5 w-5 text-zinc-500" />
-                      )}
-                    </button>
-
-                    {isOpen && (
-                      <div className="border-t border-white/10 p-5">
-                        {fileIssues.length === 0 ? (
-                          <p className="text-sm text-green-400">
-                            ✓ No issues detected.
-                          </p>
-                        ) : (
-                          <div className="space-y-3">
-                            {fileIssues.map(
-                              (issue, index) => (
-                                <div
-                                  key={`${issue.line}-${index}`}
-                                  className="rounded-xl border border-white/10 bg-black/20 p-4"
-                                >
-                                  <div className="flex flex-wrap gap-2">
-                                    <span
-                                      className={`rounded-full border px-2 py-1 text-xs ${severityClass(
-                                        issue.severity as Severity
-                                      )}`}
-                                    >
-                                      {issue.severity}
-                                    </span>
-
-                                    <span className="rounded-full border border-white/10 px-2 py-1 text-xs text-zinc-400">
-                                      {issue.type}
-                                    </span>
-
-                                    <span className="rounded-full border border-white/10 px-2 py-1 font-mono text-xs text-zinc-500">
-                                      Line {issue.line}
-                                    </span>
-                                  </div>
-
-                                  <p className="mt-3 text-sm text-zinc-300">
-                                    {issue.message}
-                                  </p>
-
-                                  {issue.recommendation && (
-                                    <p className="mt-3 text-xs text-zinc-500">
-                                      {issue.recommendation}
-                                    </p>
-                                  )}
-                                </div>
-                              )
-                            )}
-                          </div>
-                        )}
-                      </div>
+                    {isOpen ? (
+                      <ChevronUp className="h-5 w-5 text-zinc-500" />
+                    ) : (
+                      <ChevronDown className="h-5 w-5 text-zinc-500" />
                     )}
-                  </div>
-                );
-              }
-            )}
+                  </button>
+
+                  {isOpen && (
+                    <div className="border-t border-white/10 p-5">
+                      {fileIssues.length === 0 ? (
+                        <p className="text-sm text-green-400">
+                          ✓ No issues detected.
+                        </p>
+                      ) : (
+                        <div className="space-y-3">
+                          {fileIssues.map((issue, index) => (
+                            <div
+                              key={`${issue.line}-${index}`}
+                              className="rounded-xl border border-white/10 bg-black/20 p-4"
+                            >
+                              <div className="flex flex-wrap gap-2">
+                                <span
+                                  className={`rounded-full border px-2 py-1 text-xs ${severityClass(
+                                    issue.severity
+                                  )}`}
+                                >
+                                  {issue.severity}
+                                </span>
+
+                                <span className="rounded-full border border-white/10 px-2 py-1 text-xs text-zinc-400">
+                                  {issue.type}
+                                </span>
+
+                                <span className="rounded-full border border-white/10 px-2 py-1 font-mono text-xs text-zinc-500">
+                                  Line {issue.line}
+                                </span>
+                              </div>
+
+                              <p className="mt-3 text-sm text-zinc-300">
+                                {issue.message}
+                              </p>
+
+                              {issue.recommendation && (
+                                <p className="mt-3 text-xs text-zinc-500">
+                                  {issue.recommendation}
+                                </p>
+                              )}
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </div>
+              );
+            })}
           </div>
         </section>
 
@@ -724,8 +719,7 @@ export default function AnalysisPage() {
           </h2>
 
           <div className="mt-5 space-y-3">
-            {(codeAnalysis?.recommendations || []).length ===
-            0 ? (
+            {(codeAnalysis?.recommendations || []).length === 0 ? (
               <p className="text-sm text-zinc-500">
                 No recommendations available.
               </p>
@@ -789,9 +783,7 @@ function SecurityCount({
 }) {
   return (
     <div className="rounded-xl border border-white/10 bg-black/20 p-4">
-      <p className="text-xs text-zinc-500">
-        {label}
-      </p>
+      <p className="text-xs text-zinc-500">{label}</p>
 
       <p className={`mt-2 text-2xl font-bold ${className}`}>
         {value}
@@ -800,11 +792,7 @@ function SecurityCount({
   );
 }
 
-function SecurityFinding({
-  issue,
-}: {
-  issue: Issue;
-}) {
+function SecurityFinding({ issue }: { issue: Issue }) {
   return (
     <div className="rounded-2xl border border-white/10 bg-white/[0.03] p-5">
       <div className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
@@ -812,7 +800,7 @@ function SecurityFinding({
           <div className="flex flex-wrap gap-2">
             <span
               className={`rounded-full border px-2.5 py-1 text-xs ${severityClass(
-                issue.severity as Severity
+                issue.severity
               )}`}
             >
               {issue.severity}

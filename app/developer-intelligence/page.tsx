@@ -1,6 +1,7 @@
+
 "use client";
 
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import type { ElementType } from "react";
 import {
   ShieldCheck,
@@ -62,10 +63,14 @@ function ScoreCard({
             <Icon size={18} />
           </div>
 
-          <span className="text-sm text-zinc-400">{title}</span>
+          <span className="text-sm text-zinc-400">
+            {title}
+          </span>
         </div>
 
-        <span className="text-xl font-bold">{score}</span>
+        <span className="text-xl font-bold">
+          {score}
+        </span>
       </div>
 
       <div className="mt-4 h-2 overflow-hidden rounded-full bg-white/10">
@@ -86,7 +91,7 @@ export default function DeveloperIntelligencePage() {
   const [data, setData] = useState<ApiResponse | null>(null);
   const [loading, setLoading] = useState(true);
 
-  async function loadIntelligence() {
+  const loadIntelligence = useCallback(async () => {
     try {
       setLoading(true);
 
@@ -99,9 +104,22 @@ export default function DeveloperIntelligencePage() {
 
       const result = await response.json();
 
+      if (!response.ok || !result.success) {
+        setData({
+          success: false,
+          error:
+            result.error ||
+            "Failed to load developer intelligence",
+        });
+        return;
+      }
+
       setData(result);
     } catch (error) {
-      console.error("Developer intelligence error:", error);
+      console.error(
+        "Developer intelligence error:",
+        error
+      );
 
       setData({
         success: false,
@@ -110,17 +128,24 @@ export default function DeveloperIntelligencePage() {
     } finally {
       setLoading(false);
     }
-  }
+  }, [repo]);
 
   useEffect(() => {
-    loadIntelligence();
-  }, []);
+    const timer = setTimeout(() => {
+      void loadIntelligence();
+    }, 0);
+
+    return () => {
+      clearTimeout(timer);
+    };
+  }, [loadIntelligence]);
 
   if (loading) {
     return (
       <main className="min-h-screen bg-[#050505] p-8 text-white">
         <div className="mx-auto max-w-7xl animate-pulse">
           <div className="h-8 w-72 rounded bg-white/10" />
+
           <div className="mt-3 h-4 w-96 rounded bg-white/5" />
 
           <div className="mt-10 grid gap-5 md:grid-cols-2 lg:grid-cols-4">
@@ -172,7 +197,6 @@ export default function DeveloperIntelligencePage() {
   return (
     <main className="min-h-screen bg-[#050505] px-6 py-8 text-white">
       <div className="mx-auto max-w-7xl">
-
         {/* Header */}
         <div className="flex flex-col justify-between gap-5 md:flex-row md:items-end">
           <div>
@@ -273,9 +297,18 @@ export default function DeveloperIntelligencePage() {
 
           <div className="mt-4 grid gap-4 sm:grid-cols-2 lg:grid-cols-5">
             {[
-              ["Analyses", intelligence.developerSignals.totalAnalyses],
-              ["Total Issues", intelligence.developerSignals.totalIssues],
-              ["Security Issues", intelligence.developerSignals.securityIssues],
+              [
+                "Analyses",
+                intelligence.developerSignals.totalAnalyses,
+              ],
+              [
+                "Total Issues",
+                intelligence.developerSignals.totalIssues,
+              ],
+              [
+                "Security Issues",
+                intelligence.developerSignals.securityIssues,
+              ],
               [
                 "Maintainability",
                 intelligence.developerSignals.maintainabilityIssues,
