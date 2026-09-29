@@ -399,7 +399,7 @@ export default function PullRequestsPage() {
         {/* Pull request list */}
         {!loading && !error && pullRequests.length > 0 && (
           <div className="space-y-3">
-            {pullRequests.map((pr) => {
+            {pullRequests.map((pr, index) => {
               const status = getStatus(pr);
               const StatusIcon = status.icon;
 
@@ -407,10 +407,10 @@ export default function PullRequestsPage() {
               const baseRef = pr.base?.ref ?? "unknown";
 
               return (
-                <div
-                  key={pr.id}
-                  className="rounded-xl border border-zinc-800 bg-zinc-900/50 p-5 transition hover:border-zinc-700"
-                >
+               <div
+  key={`${pr.number}-${index}`}
+  className="rounded-xl border border-zinc-800 bg-zinc-900/50 p-5 transition hover:border-zinc-700"
+>
                   <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
                     <div className="min-w-0 flex-1">
                       <div className="flex flex-wrap items-center gap-2">
