@@ -1,13 +1,12 @@
-
-import type { Config } from "jest";
 import nextJest from "next/jest.js";
 
 const createJestConfig = nextJest({
   dir: "./",
 });
 
-const customJestConfig: Config = {
+const customJestConfig = {
   testEnvironment: "jsdom",
+
   setupFilesAfterEnv: ["<rootDir>/jest.setup.ts"],
 
   testPathIgnorePatterns: [
@@ -22,4 +21,4 @@ const customJestConfig: Config = {
   clearMocks: true,
 };
 
-export default createJestConfig;
+export default createJestConfig(customJestConfig);
