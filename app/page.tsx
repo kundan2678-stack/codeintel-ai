@@ -1,4 +1,6 @@
+
 import Link from "next/link";
+
 import {
   ArrowRight,
   ShieldCheck,
@@ -56,17 +58,22 @@ export default function Home() {
           <a href="#features" className="transition hover:text-white">
             Features
           </a>
+
           <a href="#how-it-works" className="transition hover:text-white">
             How it works
           </a>
+
           <a href="#security" className="transition hover:text-white">
             Security
           </a>
         </div>
 
-        <button className="rounded-lg border border-white/10 bg-white/5 px-4 py-2 text-sm font-medium transition hover:bg-white/10">
+        <Link
+          href="/login"
+          className="rounded-lg border border-white/10 bg-white/5 px-4 py-2 text-sm font-medium transition hover:bg-white/10"
+        >
           Sign in
-        </button>
+        </Link>
       </nav>
 
       {/* Hero */}
@@ -82,7 +89,9 @@ export default function Home() {
           <h1 className="mx-auto max-w-5xl text-5xl font-bold tracking-tight md:text-7xl">
             Understand your code.
             <br />
-            <span className="text-zinc-500">Build better software.</span>
+            <span className="text-zinc-500">
+              Build better software.
+            </span>
           </h1>
 
           <p className="mx-auto mt-7 max-w-2xl text-lg leading-8 text-zinc-400">
@@ -91,17 +100,23 @@ export default function Home() {
           </p>
 
           <div className="mt-10 flex flex-col justify-center gap-4 sm:flex-row">
-            <button className="group flex items-center justify-center gap-2 rounded-xl bg-white px-6 py-3 font-semibold text-black transition hover:bg-zinc-200">
+            <Link
+              href="/repositories"
+              className="group flex items-center justify-center gap-2 rounded-xl bg-white px-6 py-3 font-semibold text-black transition hover:bg-zinc-200"
+            >
               Analyze Repository
               <ArrowRight
                 size={18}
                 className="transition group-hover:translate-x-1"
               />
-            </button>
+            </Link>
 
-           <button className="flex items-center justify-center gap-2 rounded-xl border border-white/10 bg-white/5 px-6 py-3 font-semibold transition hover:bg-white/10">
-  Connect GitHub
-</button>
+            <Link
+              href="/login"
+              className="flex items-center justify-center gap-2 rounded-xl border border-white/10 bg-white/5 px-6 py-3 font-semibold transition hover:bg-white/10"
+            >
+              Connect GitHub
+            </Link>
           </div>
         </div>
       </section>
@@ -113,6 +128,7 @@ export default function Home() {
             <div className="h-3 w-3 rounded-full bg-red-400/70" />
             <div className="h-3 w-3 rounded-full bg-yellow-400/70" />
             <div className="h-3 w-3 rounded-full bg-green-400/70" />
+
             <span className="ml-4 text-xs text-zinc-500">
               CodeIntel Dashboard
             </span>
@@ -129,7 +145,9 @@ export default function Home() {
             <div>
               <div className="mb-4 flex items-center justify-between">
                 <span className="font-medium">Code Quality Trend</span>
-                <span className="text-sm text-zinc-500">Last 30 days</span>
+                <span className="text-sm text-zinc-500">
+                  Last 30 days
+                </span>
               </div>
 
               <div className="flex h-48 items-end gap-2">
@@ -140,7 +158,7 @@ export default function Home() {
                       className="flex-1 rounded-t-md bg-white/20 transition hover:bg-white/40"
                       style={{ height: `${height}%` }}
                     />
-                  ),
+                  )
                 )}
               </div>
             </div>
@@ -154,11 +172,13 @@ export default function Home() {
                   title="Potential SQL injection"
                   severity="High"
                 />
+
                 <Finding
                   icon={<Gauge size={16} />}
                   title="High complexity function"
                   severity="Medium"
                 />
+
                 <Finding
                   icon={<ShieldCheck size={16} />}
                   title="Missing input validation"
@@ -173,7 +193,9 @@ export default function Home() {
       {/* Features */}
       <section id="features" className="mx-auto max-w-7xl px-6 py-24">
         <div className="max-w-2xl">
-          <p className="text-sm font-medium text-zinc-500">CORE FEATURES</p>
+          <p className="text-sm font-medium text-zinc-500">
+            CORE FEATURES
+          </p>
 
           <h2 className="mt-3 text-4xl font-bold tracking-tight md:text-5xl">
             One platform for
@@ -200,7 +222,9 @@ export default function Home() {
                   <Icon size={20} />
                 </div>
 
-                <h3 className="text-xl font-semibold">{feature.title}</h3>
+                <h3 className="text-xl font-semibold">
+                  {feature.title}
+                </h3>
 
                 <p className="mt-3 leading-7 text-zinc-400">
                   {feature.description}
@@ -218,7 +242,9 @@ export default function Home() {
       >
         <div className="mx-auto max-w-7xl px-6 py-24">
           <div className="text-center">
-            <p className="text-sm font-medium text-zinc-500">HOW IT WORKS</p>
+            <p className="text-sm font-medium text-zinc-500">
+              HOW IT WORKS
+            </p>
 
             <h2 className="mt-3 text-4xl font-bold">
               From repository to intelligence.
@@ -268,9 +294,12 @@ export default function Home() {
           AI.
         </p>
 
-        <button className="mt-8 rounded-xl bg-white px-7 py-3 font-semibold text-black transition hover:bg-zinc-200">
+        <Link
+          href="/login"
+          className="mt-8 inline-flex rounded-xl bg-white px-7 py-3 font-semibold text-black transition hover:bg-zinc-200"
+        >
           Get Started
-        </button>
+        </Link>
       </section>
 
       {/* Footer */}
@@ -284,7 +313,13 @@ export default function Home() {
   );
 }
 
-function Metric({ title, value }: { title: string; value: string }) {
+function Metric({
+  title,
+  value,
+}: {
+  title: string;
+  value: string;
+}) {
   return (
     <div className="rounded-xl border border-white/10 bg-white/[0.02] p-5">
       <p className="text-sm text-zinc-500">{title}</p>
@@ -309,7 +344,9 @@ function Finding({
 
       <div className="flex-1">
         <p className="text-sm font-medium">{title}</p>
-        <p className="mt-1 text-xs text-zinc-500">Code analysis finding</p>
+        <p className="mt-1 text-xs text-zinc-500">
+          Code analysis finding
+        </p>
       </div>
 
       <span className="rounded-full border border-white/10 px-3 py-1 text-xs text-zinc-400">
