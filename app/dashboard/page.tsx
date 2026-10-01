@@ -1,6 +1,7 @@
+
 "use client";
 
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import {
   Code2,
   BrainCircuit,
@@ -15,6 +16,7 @@ import {
 } from "lucide-react";
 
 type Repository = {
+  id?: number;
   name: string;
   fullName: string;
   language: string | null;
@@ -66,6 +68,14 @@ type PRReviewStats = {
   criticalFindings: number;
 };
 
+const emptyPRStats: PRReviewStats = {
+  totalReviews: 0,
+  totalFindings: 0,
+  averageScore: 0,
+  highRiskReviews: 0,
+  criticalFindings: 0,
+};
+
 const emptyMetrics = [
   {
     title: "Code Quality",
@@ -94,23 +104,20 @@ export default function Dashboard() {
 
   const [repositories, setRepositories] = useState<Repository[]>([]);
   const [loadingRepositories, setLoadingRepositories] = useState(true);
+  const [repositoryError, setRepositoryError] = useState("");
 
   const [analysis, setAnalysis] = useState<Analysis | null>(null);
   const [history, setHistory] = useState<Analysis[]>([]);
   const [loadingAnalysis, setLoadingAnalysis] = useState(true);
   const [analysisError, setAnalysisError] = useState("");
 
-  const [prStats, setPrStats] = useState<PRReviewStats>({
-    totalReviews: 0,
-    totalFindings: 0,
-    averageScore: 0,
-    highRiskReviews: 0,
-    criticalFindings: 0,
-  });
+  const [prStats, setPrStats] = useState<PRReviewStats>(emptyPRStats);
 
-  async function loadRepositories() {
+  // Fetch repositories from GitHub API.
+  const loadRepositories = useCallback(async () => {
     try {
       setLoadingRepositories(true);
+      setRepositoryError("");
 
       const response = await fetch("/api/github/repos", {
         cache: "no-store",
@@ -118,26 +125,47 @@ export default function Dashboard() {
 
       const data = await response.json();
 
-      if (data.success && Array.isArray(data.repositories)) {
-        setRepositories(data.repositories);
+      if (!response.ok || !data.success) {
+        throw new Error(data.error || "Failed to load repositories.");
+      }
 
-        const currentExists = data.repositories.some(
-          (repository: Repository) => repository.fullName === repo
-        );
+      if (!Array.isArray(data.repositories)) {
+        throw new Error("Invalid repository response.");
+      }
 
-        if (!currentExists && data.repositories.length > 0) {
-          setRepo(data.repositories[0].fullName);
-        }
+      setRepositories(data.repositories);
+
+      // Keep the currently selected repository if it exists.
+      const currentExists = data.repositories.some(
+        (repository: Repository) => repository.fullName === repo
+      );
+
+      if (!currentExists && data.repositories.length > 0) {
+        setRepo(data.repositories[0].fullName);
+      }
+
+      if (data.repositories.length === 0) {
+        setRepositoryError("No GitHub repositories found.");
       }
     } catch (error) {
       console.error("Failed to load repositories:", error);
+
+      setRepositoryError(
+        error instanceof Error
+          ? error.message
+          : "Unable to load GitHub repositories."
+      );
     } finally {
       setLoadingRepositories(false);
     }
-  }
+  }, [repo]);
 
-  async function loadAnalysis(selectedRepo: string) {
-    if (!selectedRepo) return;
+  // Fetch analysis history and PR statistics.
+  const loadAnalysis = useCallback(async (selectedRepo: string) => {
+    if (!selectedRepo) {
+      setLoadingAnalysis(false);
+      return;
+    }
 
     try {
       setLoadingAnalysis(true);
@@ -158,6 +186,7 @@ export default function Dashboard() {
         setAnalysisError(
           data.error || "No analysis data available for this repository."
         );
+        setPrStats(emptyPRStats);
         return;
       }
 
@@ -168,58 +197,56 @@ export default function Dashboard() {
       setHistory(analyses);
       setAnalysis(analyses.length > 0 ? analyses[0] : null);
 
-      // Load PR review statistics
-      const prResponse = await fetch(
-        `/api/pr-reviews/stats?repo=${encodeURIComponent(selectedRepo)}`,
-        {
-          cache: "no-store",
-        }
-      );
-
-      const prResult = await prResponse.json();
-
-      if (prResponse.ok && prResult.success) {
-        setPrStats(prResult.stats);
-      } else {
-        setPrStats({
-          totalReviews: 0,
-          totalFindings: 0,
-          averageScore: 0,
-          highRiskReviews: 0,
-          criticalFindings: 0,
-        });
-      }
-
       if (analyses.length === 0) {
         setAnalysisError(
           "This repository has not been analyzed yet."
         );
+      }
+
+      // Load PR review statistics independently.
+      try {
+        const prResponse = await fetch(
+          `/api/pr-reviews/stats?repo=${encodeURIComponent(selectedRepo)}`,
+          {
+            cache: "no-store",
+          }
+        );
+
+        const prResult = await prResponse.json();
+
+        if (prResponse.ok && prResult.success && prResult.stats) {
+          setPrStats({
+            ...emptyPRStats,
+            ...prResult.stats,
+          });
+        } else {
+          setPrStats(emptyPRStats);
+        }
+      } catch (error) {
+        console.error("Failed to load PR statistics:", error);
+        setPrStats(emptyPRStats);
       }
     } catch (error) {
       console.error("Failed to load analysis:", error);
 
       setAnalysis(null);
       setHistory([]);
-
-      setPrStats({
-        totalReviews: 0,
-        totalFindings: 0,
-        averageScore: 0,
-        highRiskReviews: 0,
-        criticalFindings: 0,
-      });
-
+      setPrStats(emptyPRStats);
       setAnalysisError("Failed to load analysis data.");
     } finally {
       setLoadingAnalysis(false);
     }
-  }
+  }, []);
 
+  // Load repositories when the Dashboard first opens.
+  useEffect(() => {
+    void loadRepositories();
+  }, [loadRepositories]);
 
-useEffect(() => {
-  // eslint-disable-next-line react-hooks/set-state-in-effect
-  loadAnalysis(repo);
-}, [repo]);
+  // Reload analysis whenever the selected repository changes.
+  useEffect(() => {
+    void loadAnalysis(repo);
+  }, [repo, loadAnalysis]);
 
   const metrics = analysis
     ? [
@@ -246,12 +273,9 @@ useEffect(() => {
       ]
     : emptyMetrics;
 
-  const recentFindings =
-    analysis?.findings?.slice(0, 5) || [];
+  const recentFindings = analysis?.findings?.slice(0, 5) || [];
 
-  const chartData = [...history]
-    .reverse()
-    .slice(-10);
+  const chartData = [...history].reverse().slice(-10);
 
   return (
     <main className="min-h-screen bg-[#07070a] text-white">
@@ -264,10 +288,7 @@ useEffect(() => {
             </div>
 
             <div>
-              <h1 className="font-semibold">
-                CodeIntel AI
-              </h1>
-
+              <h1 className="font-semibold">CodeIntel AI</h1>
               <p className="text-xs text-zinc-500">
                 Developer Intelligence
               </p>
@@ -313,28 +334,30 @@ useEffect(() => {
             <div className="relative w-full md:w-[420px]">
               <select
                 value={repo}
-                onChange={(event) =>
-                  setRepo(event.target.value)
-                }
-                disabled={loadingRepositories}
+                onChange={(event) => setRepo(event.target.value)}
+                disabled={loadingRepositories || repositories.length === 0}
                 className="w-full appearance-none rounded-xl border border-white/10 bg-[#0d0d12] px-4 py-3 pr-10 text-sm text-white outline-none transition hover:border-white/20 focus:border-white/30 disabled:cursor-not-allowed disabled:opacity-50"
               >
-                {repositories.length === 0 ? (
-                  <option value={repo}>
-                    {loadingRepositories
-                      ? "Loading repositories..."
-                      : repo}
+                {loadingRepositories && (
+                  <option value="">
+                    Loading repositories...
                   </option>
-                ) : (
-                  repositories.map((repository) => (
-                    <option
-                      key={repository.fullName}
-                      value={repository.fullName}
-                    >
-                      {repository.fullName}
-                    </option>
-                  ))
                 )}
+
+                {!loadingRepositories && repositories.length === 0 && (
+                  <option value="">
+                    No repositories available
+                  </option>
+                )}
+
+                {repositories.map((repository) => (
+                  <option
+                    key={repository.fullName}
+                    value={repository.fullName}
+                  >
+                    {repository.fullName}
+                  </option>
+                ))}
               </select>
 
               <ChevronDown
@@ -344,36 +367,47 @@ useEffect(() => {
             </div>
           </div>
 
-          <div className="mt-3 flex items-center gap-2 text-xs text-zinc-600">
+          <div className="mt-3 flex flex-wrap items-center gap-2 text-xs text-zinc-600">
             <span className="h-1.5 w-1.5 rounded-full bg-green-500" />
-
             Currently selected:
-
             <span className="text-zinc-400">
-              {repo}
+              {repo || "No repository selected"}
             </span>
           </div>
+
+          {repositoryError && (
+            <div className="mt-4 rounded-xl border border-red-500/20 bg-red-500/5 p-4">
+              <p className="text-sm text-red-400">
+                {repositoryError}
+              </p>
+
+              <button
+                onClick={() => void loadRepositories()}
+                disabled={loadingRepositories}
+                className="mt-3 rounded-lg border border-white/10 px-4 py-2 text-sm hover:bg-white/5 disabled:opacity-50"
+              >
+                {loadingRepositories ? "Retrying..." : "Retry"}
+              </button>
+            </div>
+          )}
         </div>
 
         {/* Refresh */}
         <div className="mt-5 flex justify-end">
           <button
-            onClick={() => loadAnalysis(repo)}
-            disabled={loadingAnalysis}
+            onClick={() => void loadAnalysis(repo)}
+            disabled={loadingAnalysis || !repo}
             className="flex items-center gap-2 rounded-xl border border-white/10 bg-white/[0.03] px-4 py-2 text-sm text-zinc-300 transition hover:bg-white/[0.06] disabled:opacity-50"
           >
             <RefreshCw
               size={15}
-              className={
-                loadingAnalysis ? "animate-spin" : ""
-              }
+              className={loadingAnalysis ? "animate-spin" : ""}
             />
-
             Refresh Analysis
           </button>
         </div>
 
-        {/* Analysis Metrics */}
+        {/* Metrics */}
         <div className="mt-5 grid gap-4 md:grid-cols-2 lg:grid-cols-4">
           {metrics.map((metric) => {
             const Icon = metric.icon;
@@ -388,17 +422,12 @@ useEffect(() => {
                     {metric.title}
                   </p>
 
-                  <Icon
-                    size={18}
-                    className="text-zinc-500"
-                  />
+                  <Icon size={18} className="text-zinc-500" />
                 </div>
 
                 <div className="mt-3 flex items-end gap-1">
                   <span className="text-4xl font-bold">
-                    {loadingAnalysis
-                      ? "..."
-                      : metric.value}
+                    {loadingAnalysis ? "..." : metric.value}
                   </span>
 
                   <span className="mb-1 text-sm text-zinc-600">
@@ -419,73 +448,51 @@ useEffect(() => {
           })}
         </div>
 
-        {/* PR Review Metrics */}
-        <div className="mt-6">
-          <div className="mb-4">
-            <p className="text-xs uppercase tracking-wider text-zinc-500">
-              Pull Request Intelligence
-            </p>
-
-            <h3 className="mt-1 text-xl font-semibold">
-              Automated code review overview
-            </h3>
-
-            <p className="mt-1 text-sm text-zinc-500">
-              Review activity and risk signals from analyzed pull requests.
-            </p>
-          </div>
-
-          <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
-            <Stat
-              label="PR Reviews"
-              value={prStats.totalReviews}
-            />
-
-            <Stat
-              label="Average PR Score"
-              value={prStats.averageScore}
-            />
-
-            <Stat
-              label="High Risk PRs"
-              value={prStats.highRiskReviews}
-            />
-
-            <Stat
-              label="PR Findings"
-              value={prStats.totalFindings}
-            />
-          </div>
+        {/* Pull Request Review Metrics */}
+        <div className="mt-6 grid gap-4 md:grid-cols-2 lg:grid-cols-4">
+          <Stat label="PR Reviews" value={prStats.totalReviews} />
+          <Stat label="Average PR Score" value={prStats.averageScore} />
+          <Stat label="High Risk PRs" value={prStats.highRiskReviews} />
+          <Stat label="PR Findings" value={prStats.totalFindings} />
         </div>
 
         {/* PR Review Summary */}
         <div className="mt-4 rounded-2xl border border-white/10 bg-white/[0.02] p-5">
           <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
             <div>
-              <p className="text-sm text-zinc-500">
-                Critical Security Signals
+              <p className="text-xs uppercase tracking-wider text-zinc-500">
+                Pull Request Intelligence
               </p>
 
-              <h3 className="mt-1 text-2xl font-bold">
-                {prStats.criticalFindings}
+              <h3 className="mt-1 font-semibold">
+                Code review risk overview
               </h3>
 
               <p className="mt-1 text-sm text-zinc-500">
-                Critical findings detected across saved PR reviews.
+                Summary of automated pull request reviews for this repository.
               </p>
             </div>
 
-            <a
-              href={`/pull-requests?repo=${encodeURIComponent(repo)}`}
-              className="inline-flex items-center justify-center gap-2 rounded-xl bg-white px-5 py-3 text-sm font-medium text-black transition hover:bg-zinc-200"
-            >
-              View Pull Requests
-              <ArrowRight size={16} />
-            </a>
+            <div className="flex flex-wrap gap-3 text-xs">
+              <span className="rounded-full border border-white/10 bg-white/5 px-3 py-2 text-zinc-400">
+                Critical Findings:{" "}
+                <span className="text-white">
+                  {prStats.criticalFindings}
+                </span>
+              </span>
+
+              <a
+                href={`/pull-requests?repo=${encodeURIComponent(repo)}`}
+                className="inline-flex items-center gap-2 rounded-xl bg-white px-4 py-2 font-medium text-black transition hover:bg-zinc-200"
+              >
+                View PRs
+                <ArrowRight size={14} />
+              </a>
+            </div>
           </div>
         </div>
 
-        {/* Error / Empty */}
+        {/* Analysis Error */}
         {!loadingAnalysis && analysisError && (
           <div className="mt-6 rounded-2xl border border-yellow-500/20 bg-yellow-500/5 p-5">
             <div className="flex items-start gap-3">
@@ -549,10 +556,7 @@ useEffect(() => {
                     <div
                       className="w-full rounded-t-lg bg-white/20 transition hover:bg-white/40"
                       style={{
-                        height: `${Math.max(
-                          item.codeQuality,
-                          5
-                        )}%`,
+                        height: `${Math.max(item.codeQuality, 5)}%`,
                       }}
                     />
                   </div>
@@ -567,9 +571,7 @@ useEffect(() => {
 
           {/* Developer Score */}
           <div className="rounded-2xl border border-white/10 bg-white/[0.02] p-6">
-            <h3 className="font-semibold">
-              Developer Score
-            </h3>
+            <h3 className="font-semibold">Developer Score</h3>
 
             <div className="mt-8 flex items-center justify-center">
               <div
@@ -590,9 +592,7 @@ useEffect(() => {
                       : analysis?.codeHealth ?? 0}
                   </p>
 
-                  <p className="text-xs text-zinc-500">
-                    / 100
-                  </p>
+                  <p className="text-xs text-zinc-500">/ 100</p>
                 </div>
               </div>
             </div>
@@ -655,9 +655,7 @@ useEffect(() => {
             </div>
 
             <a
-              href={`/developer-intelligence?repo=${encodeURIComponent(
-                repo
-              )}`}
+              href={`/developer-intelligence?repo=${encodeURIComponent(repo)}`}
               className="flex items-center justify-center gap-2 rounded-xl bg-white px-5 py-3 text-sm font-medium text-black transition hover:bg-zinc-200"
             >
               View Intelligence
@@ -670,9 +668,7 @@ useEffect(() => {
         <div className="mt-6 rounded-2xl border border-white/10 bg-white/[0.02] p-6">
           <div className="flex items-center justify-between">
             <div>
-              <h3 className="font-semibold">
-                Recent Findings
-              </h3>
+              <h3 className="font-semibold">Recent Findings</h3>
 
               <p className="mt-1 text-sm text-zinc-500">
                 Issues detected during code analysis
@@ -691,16 +687,11 @@ useEffect(() => {
             {recentFindings.length > 0 ? (
               recentFindings.map((finding, index) => (
                 <div
-                  key={
-                    finding.id ||
-                    `${finding.message}-${index}`
-                  }
+                  key={finding.id || `${finding.message}-${index}`}
                   className="flex items-center gap-4 rounded-xl border border-white/10 bg-black/20 p-4"
                 >
                   <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-white/5">
-                    {finding.type
-                      .toLowerCase()
-                      .includes("security") ? (
+                    {finding.type.toLowerCase().includes("security") ? (
                       <ShieldCheck size={18} />
                     ) : finding.type
                         .toLowerCase()
@@ -720,14 +711,8 @@ useEffect(() => {
 
                     <p className="mt-1 text-xs text-zinc-500">
                       {finding.type}
-
-                      {finding.file
-                        ? ` • ${finding.file}`
-                        : ""}
-
-                      {finding.line
-                        ? `:${finding.line}`
-                        : ""}
+                      {finding.file ? ` • ${finding.file}` : ""}
+                      {finding.line ? `:${finding.line}` : ""}
                     </p>
                   </div>
 
@@ -756,9 +741,7 @@ useEffect(() => {
         {/* Quick Actions */}
         <div className="mt-6 grid gap-4 md:grid-cols-3">
           <Action
-            href={`/pull-requests?repo=${encodeURIComponent(
-              repo
-            )}`}
+            href={`/pull-requests?repo=${encodeURIComponent(repo)}`}
             icon={<GitPullRequest size={19} />}
             title="Review Pull Request"
             description="Analyze a GitHub pull request with CodeIntel AI."
@@ -792,9 +775,7 @@ function Stat({
 }) {
   return (
     <div className="rounded-2xl border border-white/10 bg-white/[0.02] p-5">
-      <p className="text-xs text-zinc-500">
-        {label}
-      </p>
+      <p className="text-xs text-zinc-500">{label}</p>
 
       <p className="mt-2 text-2xl font-bold">
         {value.toLocaleString()}
@@ -817,15 +798,20 @@ function Action({
   return (
     <a
       href={href}
-      className="group rounded-2xl border border-white/10 bg-white/[0.02] p-5 transition hover:-translate-y-1 hover:bg-white/[0.04]"
+      className="group rounded-2xl border border-white/10 bg-white/[0.02] p-5 transition hover:-translate-y-1 hover:bg-white/[0.05]"
     >
-      <div className="flex h-10 w-10 items-center justify-center rounded-xl border border-white/10 bg-white/5">
-        {icon}
+      <div className="flex items-center justify-between">
+        <div className="rounded-xl border border-white/10 bg-white/5 p-3">
+          {icon}
+        </div>
+
+        <ArrowRight
+          size={17}
+          className="text-zinc-500 transition group-hover:translate-x-1 group-hover:text-white"
+        />
       </div>
 
-      <h3 className="mt-5 font-semibold">
-        {title}
-      </h3>
+      <h3 className="mt-4 font-semibold">{title}</h3>
 
       <p className="mt-2 text-sm leading-6 text-zinc-500">
         {description}
