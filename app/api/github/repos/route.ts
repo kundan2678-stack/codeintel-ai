@@ -1,5 +1,7 @@
+
 import { NextResponse } from "next/server";
 import { Octokit } from "octokit";
+import { prisma } from "@/lib/prisma";
 
 export async function GET() {
   try {
@@ -37,6 +39,38 @@ export async function GET() {
       url: repo.html_url,
     }));
 
+    // Save or update repositories in PostgreSQL
+    await Promise.all(
+      repositories.map((repo) =>
+        prisma.repository.upsert({
+          where: {
+            githubId: String(repo.id),
+          },
+          create: {
+            githubId: String(repo.id),
+            name: repo.name,
+            fullName: repo.fullName,
+            description: repo.description,
+            language: repo.language,
+            stars: repo.stars,
+            forks: repo.forks,
+            url: repo.url,
+            isPrivate: repo.private,
+          },
+          update: {
+            name: repo.name,
+            fullName: repo.fullName,
+            description: repo.description,
+            language: repo.language,
+            stars: repo.stars,
+            forks: repo.forks,
+            url: repo.url,
+            isPrivate: repo.private,
+          },
+        })
+      )
+    );
+
     return NextResponse.json({
       success: true,
       repositories,
@@ -47,7 +81,7 @@ export async function GET() {
     return NextResponse.json(
       {
         success: false,
-        error: "Failed to fetch GitHub repositories",
+        error: "Failed to fetch or save GitHub repositories",
       },
       { status: 500 }
     );
