@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { Octokit } from "octokit";
 import { ESLint } from "eslint";
+import { prisma } from "@/lib/prisma";
 
 type Severity = "High" | "Medium" | "Low";
 
@@ -749,6 +750,82 @@ for (const result of fileResults) {
     // ============================================
     // 9. RESPONSE
     // ============================================
+
+
+    
+    // ============================================
+    // 9. SAVE ANALYSIS TO DATABASE
+    // ============================================
+
+    const savedRepository = await prisma.repository.upsert({
+      where: {
+        githubId: String(repository.data.id),
+      },
+      update: {
+        name: repository.data.name,
+        fullName: repository.data.full_name,
+        description: repository.data.description,
+        language: repository.data.language,
+        stars: repository.data.stargazers_count,
+        forks: repository.data.forks_count,
+        url: repository.data.html_url,
+        isPrivate: repository.data.private,
+      },
+      create: {
+        githubId: String(repository.data.id),
+        name: repository.data.name,
+        fullName: repository.data.full_name,
+        description: repository.data.description,
+        language: repository.data.language,
+        stars: repository.data.stargazers_count,
+        forks: repository.data.forks_count,
+        url: repository.data.html_url,
+        isPrivate: repository.data.private,
+      },
+    });
+
+    const savedAnalysis = await prisma.analysis.create({
+      data: {
+        repositoryId: savedRepository.id,
+
+        filesAnalyzed: analyzedFiles.length,
+        sourceFiles: sourceFiles.length,
+        functions: totalFunctions,
+        lines: totalLines,
+        issueCount: allIssues.length,
+
+        summary: JSON.stringify({
+          branch,
+          totalLines,
+          totalFunctions,
+          totalImports,
+          totalComplexity,
+          dependencyCount,
+          highIssues,
+          mediumIssues,
+          lowIssues,
+          securityIssues: securityIssues.length,
+          securityHighIssues,
+          securityMediumIssues,
+          securityLowIssues,
+          eslintIssues: eslintIssues.length,
+        }),
+
+        findings: {
+          create: allIssues.map((issue) => ({
+            type: issue.type,
+            severity: issue.severity,
+            message: issue.message,
+            file: issue.file,
+            line: issue.line,
+          })),
+        },
+      },
+    });
+
+    console.log(
+      `Analysis saved successfully: ${savedAnalysis.id}`
+    );
 
     return NextResponse.json({
       success: true,
