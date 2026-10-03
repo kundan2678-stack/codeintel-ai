@@ -13,7 +13,6 @@ type AnalysisIssue = {
   line: number;
 };
 
-
 type ESLintIssue = {
   ruleId: string | null;
   severity: Severity;
@@ -23,70 +22,11 @@ type ESLintIssue = {
   column: number;
 };
 
-async function runESLint(
-  files: Array<{ path: string; content: string }>
-): Promise<ESLintIssue[]> {
-  const lintableFiles = files.filter(({ path: filePath }) =>
-    /\.(ts|tsx|js|jsx)$/.test(filePath)
-  );
-
-  if (lintableFiles.length === 0) {
-    return [];
-  }
-
-  try {
-    const eslint = new ESLint({
-      cwd: process.cwd(),
-    });
-
-    const results = await Promise.all(
-      lintableFiles.map(async (file) => {
-        try {
-          const lintResults = await eslint.lintText(
-            file.content,
-            {
-              filePath: file.path,
-            }
-          );
-
-          return {
-            file,
-            results: lintResults,
-          };
-        } catch (error) {
-          console.error(
-            `ESLint failed for ${file.path}:`,
-            error
-          );
-
-          return {
-            file,
-            results: [],
-          };
-        }
-      })
-    );
-
-    return results.flatMap(({ file, results: lintResults }) =>
-      lintResults.flatMap((result) =>
-        result.messages.map((message) => ({
-          ruleId: message.ruleId,
-          severity:
-            message.severity === 2
-              ? ("High" as const)
-              : ("Medium" as const),
-          message: message.message,
-          file: file.path,
-          line: message.line || 1,
-          column: message.column || 1,
-        }))
-      )
-    );
-  } catch (error) {
-    console.error("ESLint analysis failed:", error);
-    return [];
-  }
-}
+type SourceFile = {
+  path: string;
+  content: string;
+  size?: number;
+};
 
 function addIssue(
   issues: AnalysisIssue[],
@@ -96,21 +36,38 @@ function addIssue(
   file: string,
   line: number
 ) {
-  issues.push({
-    type,
-    severity,
-    message,
-    file,
-    line,
-  });
+  issues.push({ type, severity, message, file, line });
 }
 
-function analyzeCode(
-  code: string,
-  filePath: string
-) {
-  const lines = code.split("\n");
+function calculateScore(
+  issues: AnalysisIssue[],
+  categories: string[],
+  weights: Record<Severity, number> = {
+    High: 15,
+    Medium: 8,
+    Low: 3,
+  }
+): number {
+  const penalty = issues
+    .filter((issue) => categories.includes(issue.type))
+    .reduce((sum, issue) => sum + weights[issue.severity], 0);
 
+  return Math.max(0, Math.min(100, 100 - penalty));
+}
+
+function calculatePerformanceScore(
+  complexity: number,
+  functions: number
+): number {
+  // Static complexity estimate, not a runtime benchmark.
+  const averageComplexity = complexity / Math.max(functions, 1);
+  const penalty = Math.max(0, averageComplexity - 5) * 5;
+
+  return Math.max(0, Math.min(100, Math.round(100 - penalty)));
+}
+
+function analyzeCode(code: string, filePath: string) {
+  const lines = code.split("\n");
   const issues: AnalysisIssue[] = [];
 
   let functionCount = 0;
@@ -120,10 +77,6 @@ function analyzeCode(
     const lineNumber = index + 1;
     const trimmed = line.trim();
 
-    // -----------------------------
-    // IMPORT DETECTION
-    // -----------------------------
-
     if (
       trimmed.startsWith("import ") ||
       trimmed.startsWith("from ") ||
@@ -131,10 +84,6 @@ function analyzeCode(
     ) {
       importCount++;
     }
-
-    // -----------------------------
-    // FUNCTION DETECTION
-    // -----------------------------
 
     if (
       /\bfunction\s+\w+\s*\(/.test(line) ||
@@ -144,9 +93,7 @@ function analyzeCode(
       functionCount++;
     }
 
-    // -----------------------------
-    // SECURITY: eval()
-    // -----------------------------
+    // Security checks
 
     if (/\beval\s*\(/.test(line)) {
       addIssue(
@@ -159,10 +106,6 @@ function analyzeCode(
       );
     }
 
-    // -----------------------------
-    // SECURITY: new Function()
-    // -----------------------------
-
     if (/new\s+Function\s*\(/.test(line)) {
       addIssue(
         issues,
@@ -173,10 +116,6 @@ function analyzeCode(
         lineNumber
       );
     }
-
-    // -----------------------------
-    // SECURITY: child_process
-    // -----------------------------
 
     if (
       /child_process/.test(line) ||
@@ -193,10 +132,6 @@ function analyzeCode(
       );
     }
 
-    // -----------------------------
-    // SECURITY: innerHTML
-    // -----------------------------
-
     if (/\.innerHTML\s*=/.test(line)) {
       addIssue(
         issues,
@@ -207,10 +142,6 @@ function analyzeCode(
         lineNumber
       );
     }
-
-    // -----------------------------
-    // SECURITY: React dangerouslySetInnerHTML
-    // -----------------------------
 
     if (/dangerouslySetInnerHTML/.test(line)) {
       addIssue(
@@ -223,13 +154,7 @@ function analyzeCode(
       );
     }
 
-    // -----------------------------
-    // SECURITY: SQL INJECTION
-    // -----------------------------
-
-    if (
-      /(SELECT|INSERT|UPDATE|DELETE)\b.*(\+|\$\{)/i.test(line)
-    ) {
+    if (/(SELECT|INSERT|UPDATE|DELETE)\b.*(\+|\$\{)/i.test(line)) {
       addIssue(
         issues,
         "Security",
@@ -239,10 +164,6 @@ function analyzeCode(
         lineNumber
       );
     }
-
-    // -----------------------------
-    // SECURITY: HARD CODED SECRET
-    // -----------------------------
 
     if (
       /(api[_-]?key|secret|password|access[_-]?token|auth[_-]?token)\s*[:=]\s*["'][^"']{8,}["']/i.test(
@@ -259,10 +180,6 @@ function analyzeCode(
       );
     }
 
-    // -----------------------------
-    // SECURITY: HTTP URL
-    // -----------------------------
-
     if (
       /["'`]http:\/\/[^"'`]+["'`]/.test(line) &&
       !/localhost|127\.0\.0\.1/.test(line)
@@ -277,9 +194,7 @@ function analyzeCode(
       );
     }
 
-    // -----------------------------
-    // PYTHON SECURITY
-    // -----------------------------
+    // Python security checks
 
     if (filePath.endsWith(".py")) {
       if (/\bos\.system\s*\(/.test(line)) {
@@ -307,7 +222,7 @@ function analyzeCode(
         );
       }
 
-      if (/pickle\.loads?\s*\(/.test(line)) {
+      if (/\bpickle\.loads?\s*\(/.test(line)) {
         addIssue(
           issues,
           "Security",
@@ -333,26 +248,23 @@ function analyzeCode(
       }
     }
 
-    // -----------------------------
-    // JAVA SECURITY
-    // -----------------------------
+    // Java security check
 
-    if (filePath.endsWith(".java")) {
-      if (/Runtime\.getRuntime\(\)\.exec\s*\(/.test(line)) {
-        addIssue(
-          issues,
-          "Security",
-          "High",
-          "Java Runtime.exec() can execute operating-system commands.",
-          filePath,
-          lineNumber
-        );
-      }
+    if (
+      filePath.endsWith(".java") &&
+      /Runtime\.getRuntime\(\)\.exec\s*\(/.test(line)
+    ) {
+      addIssue(
+        issues,
+        "Security",
+        "High",
+        "Java Runtime.exec() can execute operating-system commands.",
+        filePath,
+        lineNumber
+      );
     }
 
-    // -----------------------------
-    // CODE QUALITY: console.log
-    // -----------------------------
+    // Code quality checks
 
     if (/\bconsole\.log\s*\(/.test(line)) {
       addIssue(
@@ -365,14 +277,7 @@ function analyzeCode(
       );
     }
 
-    // -----------------------------
-    // MAINTAINABILITY: any
-    // -----------------------------
-
-    if (
-      /\bany\b/.test(line) &&
-      /\.(ts|tsx)$/.test(filePath)
-    ) {
+    if (/\bany\b/.test(line) && /\.(ts|tsx)$/.test(filePath)) {
       addIssue(
         issues,
         "Maintainability",
@@ -382,10 +287,6 @@ function analyzeCode(
         lineNumber
       );
     }
-
-    // -----------------------------
-    // CODE QUALITY: TODO/FIXME
-    // -----------------------------
 
     if (/TODO|FIXME/.test(line)) {
       addIssue(
@@ -398,10 +299,6 @@ function analyzeCode(
       );
     }
   });
-
-  // -----------------------------
-  // COMPLEXITY
-  // -----------------------------
 
   const complexity =
     1 +
@@ -421,6 +318,55 @@ function analyzeCode(
   };
 }
 
+async function runESLint(
+  files: Array<{ path: string; content: string }>
+): Promise<ESLintIssue[]> {
+  const lintable = files.filter(({ path }) =>
+    /\.(ts|tsx|js|jsx)$/.test(path)
+  );
+
+  if (lintable.length === 0) return [];
+
+  try {
+    const eslint = new ESLint({ cwd: process.cwd() });
+
+    const results = await Promise.all(
+      lintable.map(async (file) => {
+        try {
+          return {
+            file,
+            results: await eslint.lintText(file.content, {
+              filePath: file.path,
+            }),
+          };
+        } catch (error) {
+          console.error(`ESLint failed for ${file.path}:`, error);
+          return { file, results: [] };
+        }
+      })
+    );
+
+    return results.flatMap(({ file, results: lintResults }) =>
+      lintResults.flatMap((result) =>
+        result.messages.map((message) => ({
+          ruleId: message.ruleId,
+          severity:
+            message.severity === 2
+              ? ("High" as const)
+              : ("Medium" as const),
+          message: message.message,
+          file: file.path,
+          line: message.line || 1,
+          column: message.column || 1,
+        }))
+      )
+    );
+  } catch (error) {
+    console.error("ESLint analysis failed:", error);
+    return [];
+  }
+}
+
 export async function GET(request: Request) {
   try {
     const token = process.env.GITHUB_TOKEN;
@@ -428,6 +374,7 @@ export async function GET(request: Request) {
     if (!token) {
       return NextResponse.json(
         {
+          success: false,
           error: "GitHub token is not configured",
         },
         { status: 500 }
@@ -435,12 +382,12 @@ export async function GET(request: Request) {
     }
 
     const { searchParams } = new URL(request.url);
-
     const repo = searchParams.get("repo");
 
     if (!repo) {
       return NextResponse.json(
         {
+          success: false,
           error: "Repository is required",
         },
         { status: 400 }
@@ -449,23 +396,17 @@ export async function GET(request: Request) {
 
     const [owner, name] = repo.split("/");
 
-    if (!owner || !name) {
+    if (!owner || !name || repo.split("/").length !== 2) {
       return NextResponse.json(
         {
-          error:
-            "Invalid repository format. Use owner/repository",
+          success: false,
+          error: "Invalid repository format. Use owner/repository",
         },
         { status: 400 }
       );
     }
 
-    const octokit = new Octokit({
-      auth: token,
-    });
-
-    // ============================================
-    // 1. GET REPOSITORY
-    // ============================================
+    const octokit = new Octokit({ auth: token });
 
     const repository = await octokit.request(
       "GET /repos/{owner}/{repo}",
@@ -476,10 +417,6 @@ export async function GET(request: Request) {
     );
 
     const branch = repository.data.default_branch;
-
-    // ============================================
-    // 2. GET BRANCH SHA
-    // ============================================
 
     const branchResponse = await octokit.request(
       "GET /repos/{owner}/{repo}/branches/{branch}",
@@ -492,10 +429,6 @@ export async function GET(request: Request) {
 
     const sha = branchResponse.data.commit.sha;
 
-    // ============================================
-    // 3. GET COMPLETE REPOSITORY TREE
-    // ============================================
-
     const treeResponse = await octokit.request(
       "GET /repos/{owner}/{repo}/git/trees/{tree_sha}",
       {
@@ -505,10 +438,6 @@ export async function GET(request: Request) {
         recursive: "true",
       }
     );
-
-    // ============================================
-    // 4. FIND SOURCE FILES
-    // ============================================
 
     const sourceExtensions = [
       ".ts",
@@ -520,35 +449,34 @@ export async function GET(request: Request) {
       ".c",
       ".cpp",
     ];
+
     const excludedPaths = [
-    "app/api/github/analyze/route.ts",
-    ".github/",
-    "node_modules/",
-    ".next/",
-    "dist/",
-    "build/",
+      "app/api/github/analyze/route.ts",
+      ".github/",
+      "node_modules/",
+      ".next/",
+      "dist/",
+      "build/",
     ];
 
     const sourceFiles = treeResponse.data.tree
-    .filter(
-    (item) =>
-      item.type === "blob" &&
-      item.path &&
-      sourceExtensions.some((ext) =>
-        item.path!.toLowerCase().endsWith(ext)
-      ) &&
-      !excludedPaths.some((excluded) =>
-        item.path!.startsWith(excluded)
+      .filter(
+        (item) =>
+          item.type === "blob" &&
+          Boolean(item.path) &&
+          sourceExtensions.some((ext) =>
+            item.path!.toLowerCase().endsWith(ext)
+          ) &&
+          !excludedPaths.some((excluded) =>
+            item.path!.startsWith(excluded)
+          )
       )
-    )
-    .slice(0, 10);
-
-    // ============================================
-    // 5. DEPENDENCY ANALYSIS
-    // ============================================
+      .slice(0, 10);
 
     let dependencyCount = 0;
     let dependencies: string[] = [];
+
+    // Read package.json dependencies
 
     try {
       const packageResponse = await octokit.request(
@@ -572,120 +500,86 @@ export async function GET(request: Request) {
 
         const packageJson = JSON.parse(packageContent);
 
-        const productionDependencies = Object.keys(
-          packageJson.dependencies || {}
-        );
-
-        const developmentDependencies = Object.keys(
-          packageJson.devDependencies || {}
-        );
-
         dependencies = [
-          ...productionDependencies,
-          ...developmentDependencies,
+          ...Object.keys(packageJson.dependencies || {}),
+          ...Object.keys(packageJson.devDependencies || {}),
         ];
 
         dependencyCount = dependencies.length;
       }
-    } catch (dependencyError) {
-      console.error(
-        "Dependency analysis failed:",
-        dependencyError
-      );
+    } catch (error) {
+      console.error("Dependency analysis failed:", error);
     }
 
-    // ============================================
-    // 6. ANALYZE SOURCE FILES
-    // ============================================
-
-    const analyzedFiles: Array<{
-      path: string;
-      size: number | undefined;
-      lines: number;
-      functions: number;
-      imports: number;
-      complexity: number;
-      issues: AnalysisIssue[];
-      eslintIssues: ESLintIssue[];
-    }> = [];
-
-    let totalLines = 0;
-    let totalFunctions = 0;
-    let totalImports = 0;
-    let totalComplexity = 0;
-
-    const sourceContents: Array<{ path: string; content: string }> = [];
+    // Analyze source files
 
     const fileResults = await Promise.all(
-  sourceFiles.map(async (file) => {
-    try {
-      const response = await octokit.request(
-        "GET /repos/{owner}/{repo}/contents/{path}",
-        {
-          owner,
-          repo: name,
-          path: file.path!,
-          ref: branch,
+      sourceFiles.map(async (file) => {
+        try {
+          const response = await octokit.request(
+            "GET /repos/{owner}/{repo}/contents/{path}",
+            {
+              owner,
+              repo: name,
+              path: file.path!,
+              ref: branch,
+            }
+          );
+
+          if (
+            Array.isArray(response.data) ||
+            response.data.type !== "file"
+          ) {
+            return null;
+          }
+
+          const content = Buffer.from(
+            response.data.content || "",
+            "base64"
+          ).toString("utf-8");
+
+          return {
+            path: file.path!,
+            size: file.size,
+            content,
+            analysis: analyzeCode(content, file.path!),
+          };
+        } catch (error) {
+          console.error(`Failed to analyze ${file.path}:`, error);
+          return null;
         }
-      );
+      })
+    );
 
-      if (
-        Array.isArray(response.data) ||
-        response.data.type !== "file"
-      ) {
-        return null;
-      }
+    const analyzedFiles = fileResults.filter(
+      (item): item is NonNullable<typeof item> => item !== null
+    );
 
-      const content = Buffer.from(
-        response.data.content || "",
-        "base64"
-      ).toString("utf-8");
+    const totalLines = analyzedFiles.reduce(
+      (sum, file) => sum + file.analysis.lines,
+      0
+    );
 
-      const analysis = analyzeCode(
-        content,
-        file.path!
-      );
+    const totalFunctions = analyzedFiles.reduce(
+      (sum, file) => sum + file.analysis.functions,
+      0
+    );
 
-      return {
-        path: file.path!,
-        size: file.size,
-        content,
-        analysis,
-      };
-    } catch (fileError) {
-      console.error(
-        `Failed to analyze ${file.path}`,
-        fileError
-      );
+    const totalImports = analyzedFiles.reduce(
+      (sum, file) => sum + file.analysis.imports,
+      0
+    );
 
-      return null;
-    }
-  })
-);
+    const totalComplexity = analyzedFiles.reduce(
+      (sum, file) => sum + file.analysis.complexity,
+      0
+    );
 
-for (const result of fileResults) {
-  if (!result) continue;
+    const sourceContents = analyzedFiles.map(
+      ({ path, content }) => ({ path, content })
+    );
 
-  totalLines += result.analysis.lines;
-  totalFunctions += result.analysis.functions;
-  totalImports += result.analysis.imports;
-  totalComplexity += result.analysis.complexity;
-
-  sourceContents.push({
-    path: result.path,
-    content: result.content,
-  });
-
-  analyzedFiles.push({
-    path: result.path,
-    size: result.size,
-    ...result.analysis,
-    eslintIssues: [],
-  });
-}
-    // ============================================
-    // 7. ESLINT ANALYSIS
-    // ============================================
+    // Run ESLint
 
     const eslintIssues = await runESLint(sourceContents);
 
@@ -695,41 +589,30 @@ for (const result of fileResults) {
       );
 
       if (targetFile) {
-        targetFile.eslintIssues.push(issue);
-
-        targetFile.issues.push({
+        targetFile.analysis.issues.push({
           type: "ESLint",
           severity: issue.severity,
-          message: `${issue.message}${issue.ruleId ? ` [${issue.ruleId}]` : ""}`,
+          message: `${issue.message}${
+            issue.ruleId ? ` [${issue.ruleId}]` : ""
+          }`,
           file: issue.file,
           line: issue.line,
         });
       }
     }
 
-    // ============================================
-    // 8. COLLECT ISSUES
-    // ============================================
+    // Combine all findings
 
     const allIssues = analyzedFiles.flatMap(
-      (file) => file.issues
+      (file) => file.analysis.issues
     );
 
-    const highIssues = allIssues.filter(
-      (issue) => issue.severity === "High"
-    ).length;
+    const countSeverity = (severity: Severity) =>
+      allIssues.filter((issue) => issue.severity === severity).length;
 
-    const mediumIssues = allIssues.filter(
-      (issue) => issue.severity === "Medium"
-    ).length;
-
-    const lowIssues = allIssues.filter(
-      (issue) => issue.severity === "Low"
-    ).length;
-
-    // ============================================
-    // 8. SECURITY METRICS
-    // ============================================
+    const highIssues = countSeverity("High");
+    const mediumIssues = countSeverity("Medium");
+    const lowIssues = countSeverity("Low");
 
     const securityIssues = allIssues.filter(
       (issue) => issue.type === "Security"
@@ -747,20 +630,46 @@ for (const result of fileResults) {
       (issue) => issue.severity === "Low"
     ).length;
 
-    // ============================================
-    // 9. RESPONSE
-    // ============================================
+    // Scoring engine
 
+    const codeQualityScore = calculateScore(allIssues, [
+      "Code Quality",
+      "ESLint",
+    ]);
 
-    
-    // ============================================
-    // 9. SAVE ANALYSIS TO DATABASE
-    // ============================================
+    const securityScore = calculateScore(
+      securityIssues,
+      ["Security"],
+      {
+        High: 20,
+        Medium: 10,
+        Low: 4,
+      }
+    );
+
+    const maintainabilityScore = calculateScore(allIssues, [
+      "Maintainability",
+    ]);
+
+    const performanceScore = calculatePerformanceScore(
+      totalComplexity,
+      totalFunctions
+    );
+
+    const developerScore = Math.round(
+      codeQualityScore * 0.25 +
+        securityScore * 0.35 +
+        performanceScore * 0.2 +
+        maintainabilityScore * 0.2
+    );
+
+    // Save repository to database
 
     const savedRepository = await prisma.repository.upsert({
       where: {
         githubId: String(repository.data.id),
       },
+
       update: {
         name: repository.data.name,
         fullName: repository.data.full_name,
@@ -771,6 +680,7 @@ for (const result of fileResults) {
         url: repository.data.html_url,
         isPrivate: repository.data.private,
       },
+
       create: {
         githubId: String(repository.data.id),
         name: repository.data.name,
@@ -784,9 +694,17 @@ for (const result of fileResults) {
       },
     });
 
+    // Save analysis and findings
+
     const savedAnalysis = await prisma.analysis.create({
       data: {
         repositoryId: savedRepository.id,
+
+        codeQuality: codeQualityScore,
+        security: securityScore,
+        performance: performanceScore,
+        maintainability: maintainabilityScore,
+        codeHealth: developerScore,
 
         filesAnalyzed: analyzedFiles.length,
         sourceFiles: sourceFiles.length,
@@ -801,14 +719,28 @@ for (const result of fileResults) {
           totalImports,
           totalComplexity,
           dependencyCount,
+
           highIssues,
           mediumIssues,
           lowIssues,
+
           securityIssues: securityIssues.length,
           securityHighIssues,
           securityMediumIssues,
           securityLowIssues,
+
           eslintIssues: eslintIssues.length,
+
+          scores: {
+            codeQuality: codeQualityScore,
+            security: securityScore,
+            performance: performanceScore,
+            maintainability: maintainabilityScore,
+            developer: developerScore,
+          },
+
+          scoringNote:
+            "Scores are rule-based estimates. Performance is based on static complexity, not runtime measurements.",
         }),
 
         findings: {
@@ -826,6 +758,8 @@ for (const result of fileResults) {
     console.log(
       `Analysis saved successfully: ${savedAnalysis.id}`
     );
+
+    // Return API response
 
     return NextResponse.json({
       success: true,
@@ -845,11 +779,9 @@ for (const result of fileResults) {
         functions: totalFunctions,
         imports: totalImports,
         complexity: totalComplexity,
-
         dependencies: dependencyCount,
 
         issues: allIssues.length,
-
         highIssues,
         mediumIssues,
         lowIssues,
@@ -860,19 +792,34 @@ for (const result of fileResults) {
         securityLowIssues,
 
         eslintIssues: eslintIssues.length,
+
+        codeQualityScore,
+        securityScore,
+        performanceScore,
+        maintainabilityScore,
+        developerScore,
       },
 
       dependencyList: dependencies,
 
-      files: analyzedFiles,
+      files: analyzedFiles.map((file) => ({
+        path: file.path,
+        size: file.size,
+        lines: file.analysis.lines,
+        functions: file.analysis.functions,
+        imports: file.analysis.imports,
+        complexity: file.analysis.complexity,
+        issues: file.analysis.issues,
+
+        eslintIssues: eslintIssues.filter(
+          (issue) => issue.file === file.path
+        ),
+      })),
 
       issues: allIssues,
     });
   } catch (error) {
-    console.error(
-      "Analysis API Error:",
-      error
-    );
+    console.error("Analysis API Error:", error);
 
     return NextResponse.json(
       {
