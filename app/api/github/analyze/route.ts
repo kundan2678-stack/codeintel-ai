@@ -77,6 +77,7 @@ function analyzeCode(code: string, filePath: string) {
     const lineNumber = index + 1;
     const trimmed = line.trim();
 
+    // Import detection
     if (
       trimmed.startsWith("import ") ||
       trimmed.startsWith("from ") ||
@@ -85,6 +86,7 @@ function analyzeCode(code: string, filePath: string) {
       importCount++;
     }
 
+    // Function detection
     if (
       /\bfunction\s+\w+\s*\(/.test(line) ||
       /\bdef\s+\w+\s*\(/.test(line) ||
@@ -195,7 +197,6 @@ function analyzeCode(code: string, filePath: string) {
     }
 
     // Python security checks
-
     if (filePath.endsWith(".py")) {
       if (/\bos\.system\s*\(/.test(line)) {
         addIssue(
@@ -249,7 +250,6 @@ function analyzeCode(code: string, filePath: string) {
     }
 
     // Java security check
-
     if (
       filePath.endsWith(".java") &&
       /Runtime\.getRuntime\(\)\.exec\s*\(/.test(line)
@@ -265,7 +265,6 @@ function analyzeCode(code: string, filePath: string) {
     }
 
     // Code quality checks
-
     if (/\bconsole\.log\s*\(/.test(line)) {
       addIssue(
         issues,
@@ -340,7 +339,11 @@ async function runESLint(
             }),
           };
         } catch (error) {
-          console.error(`ESLint failed for ${file.path}:`, error);
+          console.error(
+            `ESLint failed for ${file.path}:`,
+            error
+          );
+
           return { file, results: [] };
         }
       })
@@ -477,7 +480,6 @@ export async function GET(request: Request) {
     let dependencies: string[] = [];
 
     // Read package.json dependencies
-
     try {
       const packageResponse = await octokit.request(
         "GET /repos/{owner}/{repo}/contents/{path}",
@@ -512,7 +514,6 @@ export async function GET(request: Request) {
     }
 
     // Analyze source files
-
     const fileResults = await Promise.all(
       sourceFiles.map(async (file) => {
         try {
@@ -545,7 +546,11 @@ export async function GET(request: Request) {
             analysis: analyzeCode(content, file.path!),
           };
         } catch (error) {
-          console.error(`Failed to analyze ${file.path}:`, error);
+          console.error(
+            `Failed to analyze ${file.path}:`,
+            error
+          );
+
           return null;
         }
       })
@@ -580,7 +585,6 @@ export async function GET(request: Request) {
     );
 
     // Run ESLint
-
     const eslintIssues = await runESLint(sourceContents);
 
     for (const issue of eslintIssues) {
@@ -601,41 +605,122 @@ export async function GET(request: Request) {
       }
     }
 
-    // Combine all findings
-
+    // Collect all findings
     const allIssues = analyzedFiles.flatMap(
       (file) => file.analysis.issues
     );
 
-    const countSeverity = (severity: Severity) =>
-      allIssues.filter((issue) => issue.severity === severity).length;
+    // Identify test files
+    const isTestFile = (filePath: string): boolean => {
+      const normalizedPath = filePath
+        .toLowerCase()
+        .replace(/\\/g, "/");
 
-    const highIssues = countSeverity("High");
-    const mediumIssues = countSeverity("Medium");
-    const lowIssues = countSeverity("Low");
+      return (
+        normalizedPath.includes("/__tests__/") ||
+        normalizedPath.includes("/tests/") ||
+        normalizedPath.includes("/test/") ||
+        normalizedPath.includes(".test.") ||
+        normalizedPath.includes(".spec.") ||
+        normalizedPath.startsWith("__tests__/") ||
+        normalizedPath.startsWith("tests/") ||
+        normalizedPath.startsWith("test/")
+      );
+    };
 
-    const securityIssues = allIssues.filter(
+    // Separate production and test findings
+    const productionIssues = allIssues.filter(
+      (issue) => !isTestFile(issue.file)
+    );
+
+    const testIssues = allIssues.filter(
+      (issue) => isTestFile(issue.file)
+    );
+
+    const countSeverity = (
+      issues: AnalysisIssue[],
+      severity: Severity
+    ) =>
+      issues.filter(
+        (issue) => issue.severity === severity
+      ).length;
+
+    // Production severity counts
+    const highIssues = countSeverity(
+      productionIssues,
+      "High"
+    );
+
+    const mediumIssues = countSeverity(
+      productionIssues,
+      "Medium"
+    );
+
+    const lowIssues = countSeverity(
+      productionIssues,
+      "Low"
+    );
+
+    // Test severity counts
+    const testHighIssues = countSeverity(
+      testIssues,
+      "High"
+    );
+
+    const testMediumIssues = countSeverity(
+      testIssues,
+      "Medium"
+    );
+
+    const testLowIssues = countSeverity(
+      testIssues,
+      "Low"
+    );
+
+    // Security findings
+    const securityIssues = productionIssues.filter(
       (issue) => issue.type === "Security"
     );
 
-    const securityHighIssues = securityIssues.filter(
-      (issue) => issue.severity === "High"
-    ).length;
+    const testSecurityIssues = testIssues.filter(
+      (issue) => issue.type === "Security"
+    );
 
-    const securityMediumIssues = securityIssues.filter(
-      (issue) => issue.severity === "Medium"
-    ).length;
+    const securityHighIssues = countSeverity(
+      securityIssues,
+      "High"
+    );
 
-    const securityLowIssues = securityIssues.filter(
-      (issue) => issue.severity === "Low"
-    ).length;
+    const securityMediumIssues = countSeverity(
+      securityIssues,
+      "Medium"
+    );
 
-    // Scoring engine
+    const securityLowIssues = countSeverity(
+      securityIssues,
+      "Low"
+    );
 
-    const codeQualityScore = calculateScore(allIssues, [
-      "Code Quality",
-      "ESLint",
-    ]);
+    const testSecurityHighIssues = countSeverity(
+      testSecurityIssues,
+      "High"
+    );
+
+    const testSecurityMediumIssues = countSeverity(
+      testSecurityIssues,
+      "Medium"
+    );
+
+    const testSecurityLowIssues = countSeverity(
+      testSecurityIssues,
+      "Low"
+    );
+
+    // Scoring engine: production findings only
+    const codeQualityScore = calculateScore(
+      productionIssues,
+      ["Code Quality", "ESLint"]
+    );
 
     const securityScore = calculateScore(
       securityIssues,
@@ -647,9 +732,10 @@ export async function GET(request: Request) {
       }
     );
 
-    const maintainabilityScore = calculateScore(allIssues, [
-      "Maintainability",
-    ]);
+    const maintainabilityScore = calculateScore(
+      productionIssues,
+      ["Maintainability"]
+    );
 
     const performanceScore = calculatePerformanceScore(
       totalComplexity,
@@ -663,13 +749,11 @@ export async function GET(request: Request) {
         maintainabilityScore * 0.2
     );
 
-    // Save repository to database
-
+    // Save repository
     const savedRepository = await prisma.repository.upsert({
       where: {
         githubId: String(repository.data.id),
       },
-
       update: {
         name: repository.data.name,
         fullName: repository.data.full_name,
@@ -680,7 +764,6 @@ export async function GET(request: Request) {
         url: repository.data.html_url,
         isPrivate: repository.data.private,
       },
-
       create: {
         githubId: String(repository.data.id),
         name: repository.data.name,
@@ -695,7 +778,6 @@ export async function GET(request: Request) {
     });
 
     // Save analysis and findings
-
     const savedAnalysis = await prisma.analysis.create({
       data: {
         repositoryId: savedRepository.id,
@@ -724,6 +806,23 @@ export async function GET(request: Request) {
           mediumIssues,
           lowIssues,
 
+          productionFindings: productionIssues.length,
+          testFindings: testIssues.length,
+
+          productionSecurityFindings:
+            securityIssues.length,
+
+          testSecurityFindings:
+            testSecurityIssues.length,
+
+          testHighIssues,
+          testMediumIssues,
+          testLowIssues,
+
+          testSecurityHighIssues,
+          testSecurityMediumIssues,
+          testSecurityLowIssues,
+
           securityIssues: securityIssues.length,
           securityHighIssues,
           securityMediumIssues,
@@ -740,7 +839,7 @@ export async function GET(request: Request) {
           },
 
           scoringNote:
-            "Scores are rule-based estimates. Performance is based on static complexity, not runtime measurements.",
+            "Scores are rule-based estimates. Performance is based on static complexity, not runtime measurements. Test findings are reported separately and excluded from production quality scores.",
         }),
 
         findings: {
@@ -760,7 +859,6 @@ export async function GET(request: Request) {
     );
 
     // Return API response
-
     return NextResponse.json({
       success: true,
 
@@ -782,9 +880,27 @@ export async function GET(request: Request) {
         dependencies: dependencyCount,
 
         issues: allIssues.length,
+
         highIssues,
         mediumIssues,
         lowIssues,
+
+        productionFindings: productionIssues.length,
+        testFindings: testIssues.length,
+
+        productionSecurityFindings:
+          securityIssues.length,
+
+        testSecurityFindings:
+          testSecurityIssues.length,
+
+        testHighIssues,
+        testMediumIssues,
+        testLowIssues,
+
+        testSecurityHighIssues,
+        testSecurityMediumIssues,
+        testSecurityLowIssues,
 
         securityIssues: securityIssues.length,
         securityHighIssues,
@@ -816,6 +932,7 @@ export async function GET(request: Request) {
         ),
       })),
 
+      // Return every finding, including test-file findings.
       issues: allIssues,
     });
   } catch (error) {
