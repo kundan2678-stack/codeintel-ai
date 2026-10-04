@@ -1,5 +1,6 @@
 "use client";
-
+import Link from "next/link";
+import { History } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   Code2,
@@ -134,6 +135,7 @@ function Stat({
 }
 
 function Action({
+
   href,
   icon,
   title,
@@ -916,6 +918,14 @@ export default function Dashboard() {
             title="Code Health"
             description="Review your overall engineering health."
           />
+
+          <Link
+  href="/analysis-history?repo=kundan2678-stack%2Fcodeintel-ai"
+  className="inline-flex items-center gap-2 rounded-xl border border-white/10 bg-white/5 px-4 py-3 text-sm font-medium text-white transition hover:bg-white/10"
+>
+  <History className="h-4 w-4" />
+  Analysis History
+</Link>
         </div>
       </section>
     </main>
