@@ -1,7 +1,9 @@
+
 import { NextResponse } from "next/server";
 import { Octokit } from "octokit";
-import { ESLint } from "eslint";
 import { prisma } from "@/lib/prisma";
+
+export const runtime = "nodejs";
 
 type Severity = "High" | "Medium" | "Low";
 
@@ -317,57 +319,17 @@ function analyzeCode(code: string, filePath: string) {
   };
 }
 
+/**
+ * ESLint is intentionally skipped for remote repositories.
+ * Their ESLint configuration may not be available in the
+ * deployed CodeIntel AI runtime.
+ *
+ * Static analysis continues to run independently.
+ */
 async function runESLint(
-  files: Array<{ path: string; content: string }>
+  _files: Array<{ path: string; content: string }>
 ): Promise<ESLintIssue[]> {
-  const lintable = files.filter(({ path }) =>
-    /\.(ts|tsx|js|jsx)$/.test(path)
-  );
-
-  if (lintable.length === 0) return [];
-
-  try {
-    const eslint = new ESLint({ cwd: process.cwd() });
-
-    const results = await Promise.all(
-      lintable.map(async (file) => {
-        try {
-          return {
-            file,
-            results: await eslint.lintText(file.content, {
-              filePath: file.path,
-            }),
-          };
-        } catch (error) {
-          console.error(
-            `ESLint failed for ${file.path}:`,
-            error
-          );
-
-          return { file, results: [] };
-        }
-      })
-    );
-
-    return results.flatMap(({ file, results: lintResults }) =>
-      lintResults.flatMap((result) =>
-        result.messages.map((message) => ({
-          ruleId: message.ruleId,
-          severity:
-            message.severity === 2
-              ? ("High" as const)
-              : ("Medium" as const),
-          message: message.message,
-          file: file.path,
-          line: message.line || 1,
-          column: message.column || 1,
-        }))
-      )
-    );
-  } catch (error) {
-    console.error("ESLint analysis failed:", error);
-    return [];
-  }
+  return [];
 }
 
 export async function GET(request: Request) {
@@ -411,6 +373,7 @@ export async function GET(request: Request) {
 
     const octokit = new Octokit({ auth: token });
 
+    // Fetch repository information
     const repository = await octokit.request(
       "GET /repos/{owner}/{repo}",
       {
@@ -421,6 +384,7 @@ export async function GET(request: Request) {
 
     const branch = repository.data.default_branch;
 
+    // Fetch default branch
     const branchResponse = await octokit.request(
       "GET /repos/{owner}/{repo}/branches/{branch}",
       {
@@ -432,6 +396,7 @@ export async function GET(request: Request) {
 
     const sha = branchResponse.data.commit.sha;
 
+    // Fetch repository file tree
     const treeResponse = await octokit.request(
       "GET /repos/{owner}/{repo}/git/trees/{tree_sha}",
       {
@@ -584,7 +549,7 @@ export async function GET(request: Request) {
       ({ path, content }) => ({ path, content })
     );
 
-    // Run ESLint
+    // Run ESLint (currently disabled for remote repositories)
     const eslintIssues = await runESLint(sourceContents);
 
     for (const issue of eslintIssues) {
@@ -809,11 +774,8 @@ export async function GET(request: Request) {
           productionFindings: productionIssues.length,
           testFindings: testIssues.length,
 
-          productionSecurityFindings:
-            securityIssues.length,
-
-          testSecurityFindings:
-            testSecurityIssues.length,
+          productionSecurityFindings: securityIssues.length,
+          testSecurityFindings: testSecurityIssues.length,
 
           testHighIssues,
           testMediumIssues,
@@ -888,11 +850,8 @@ export async function GET(request: Request) {
         productionFindings: productionIssues.length,
         testFindings: testIssues.length,
 
-        productionSecurityFindings:
-          securityIssues.length,
-
-        testSecurityFindings:
-          testSecurityIssues.length,
+        productionSecurityFindings: securityIssues.length,
+        testSecurityFindings: testSecurityIssues.length,
 
         testHighIssues,
         testMediumIssues,
