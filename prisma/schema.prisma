@@ -8,106 +8,111 @@ datasource db {
 }
 
 model Repository {
-  id          String   @id @default(cuid())
-  githubId    String   @unique
+  id          String  @id @default(cuid())
+  githubId    String  @unique
   name        String
-  fullName    String   @unique
+  fullName    String  @unique
   description String?
   language    String?
-  stars       Int      @default(0)
-  forks       Int      @default(0)
+  stars       Int     @default(0)
+  forks       Int     @default(0)
   url         String
-  isPrivate   Boolean  @default(false)
+  isPrivate   Boolean @default(false)
 
-  analyses    Analysis[]
+  analyses     Analysis[]
   pullRequests PullRequest[]
 
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 }
 
 model Analysis {
-  id              String   @id @default(cuid())
-  repositoryId    String
+  id           String @id @default(cuid())
+  repositoryId String
 
-  codeQuality     Int      @default(0)
-  security        Int      @default(0)
-  performance     Int      @default(0)
-  maintainability Int      @default(0)
-  codeHealth      Int      @default(0)
+  codeQuality     Int @default(0)
+  security        Int @default(0)
+  performance     Int @default(0)
+  maintainability Int @default(0)
+  codeHealth      Int @default(0)
 
-  filesAnalyzed   Int      @default(0)
-  sourceFiles     Int      @default(0)
-  functions       Int      @default(0)
-  lines           Int      @default(0)
-  issueCount      Int      @default(0)
+  filesAnalyzed Int @default(0)
+  sourceFiles   Int @default(0)
+  functions     Int @default(0)
+  lines         Int @default(0)
+  issueCount    Int @default(0)
 
-  summary         String?
+  summary String?
 
-  repository      Repository @relation(fields: [repositoryId], references: [id], onDelete: Cascade)
-  findings        Finding[]
+  repository Repository @relation(fields: [repositoryId], references: [id], onDelete: Cascade)
+  findings   Finding[]
 
-  createdAt       DateTime @default(now())
+  createdAt DateTime @default(now())
 }
 
 model Finding {
-  id          String   @id @default(cuid())
-  analysisId  String
+  id         String @id @default(cuid())
+  analysisId String
 
-  type        String
-  severity    String
-  message     String
-  file        String?
-  line        Int?
+  type     String
+  severity String
+  message  String
+  file     String?
+  line     Int?
 
-  analysis    Analysis @relation(fields: [analysisId], references: [id], onDelete: Cascade)
+  analysis Analysis @relation(fields: [analysisId], references: [id], onDelete: Cascade)
 
-  createdAt   DateTime @default(now())
+  createdAt DateTime @default(now())
 }
 
 model PullRequest {
-  id           String   @id @default(cuid())
+  id           String @id @default(cuid())
   repositoryId String
 
-  githubId     String   @unique
-  number       Int
-  title        String
-  body         String?
-  state        String
-  author       String
-  branch       String
-  baseBranch   String
+  githubId   String  @unique
+  number     Int
+  title      String
+  body       String?
+  state      String
+  author     String
+  branch     String
+  baseBranch String
 
-  additions    Int      @default(0)
-  deletions    Int      @default(0)
-  changedFiles Int      @default(0)
+  additions    Int @default(0)
+  deletions    Int @default(0)
+  changedFiles Int @default(0)
 
-  repository   Repository @relation(fields: [repositoryId], references: [id], onDelete: Cascade)
-  reviews      PRReview[]
+  repository Repository @relation(fields: [repositoryId], references: [id], onDelete: Cascade)
+  reviews    PRReview[]
 
-  createdAt    DateTime @default(now())
-  updatedAt    DateTime @updatedAt
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
   @@unique([repositoryId, number])
 }
 
 model PRReview {
-  id            String   @id @default(cuid())
+  id            String @id @default(cuid())
   pullRequestId String
 
-  score         Int
-  risk          String
-  summary       String
+  // GitHub commit that was reviewed
+  commitSha String?
 
-  pullRequest   PullRequest @relation(fields: [pullRequestId], references: [id], onDelete: Cascade)
-  findings      PRFinding[]
+  score   Int
+  risk    String
+  summary String
 
-  createdAt     DateTime @default(now())
+  pullRequest PullRequest @relation(fields: [pullRequestId], references: [id], onDelete: Cascade)
+  findings    PRFinding[]
+
+  createdAt DateTime @default(now())
+
+  @@unique([pullRequestId, commitSha])
 }
 
 model PRFinding {
-  id             String   @id @default(cuid())
-  reviewId       String
+  id       String @id @default(cuid())
+  reviewId String
 
   category       String
   severity       String
@@ -118,5 +123,5 @@ model PRFinding {
   recommendation String?
   suggestedFix   String?
 
-  review         PRReview @relation(fields: [reviewId], references: [id], onDelete: Cascade)
+  review PRReview @relation(fields: [reviewId], references: [id], onDelete: Cascade)
 }

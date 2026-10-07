@@ -506,6 +506,8 @@ export async function POST(
     const githubPullRequest =
       githubPR.data;
 
+    const commitSha = githubPullRequest.head.sha;
+
     /*
      * Create/update repository in PostgreSQL.
      */
@@ -643,6 +645,48 @@ export async function POST(
         },
       });
 
+
+
+    /*
+ * Prevent duplicate reviews for the same PR commit.
+ */
+
+const existingReview =
+  await prisma.pRReview.findFirst({
+    where: {
+      pullRequestId: pullRequestRecord.id,
+      commitSha,
+    },
+    include: {
+      findings: true,
+    },
+    orderBy: {
+      createdAt: "desc",
+    },
+  });
+
+if (existingReview) {
+  return NextResponse.json({
+    success: true,
+    message: "This commit has already been reviewed.",
+    repository: repo,
+    pullRequest: number,
+    review: {
+      id: existingReview.id,
+      summary: existingReview.summary,
+      risk: existingReview.risk,
+      score: existingReview.score,
+      findings: existingReview.findings,
+      createdAt: existingReview.createdAt,
+    },
+    database: {
+      repositoryId: repositoryRecord.id,
+      pullRequestId: pullRequestRecord.id,
+      reviewId: existingReview.id,
+    },
+    duplicate: true,
+  });
+}
     /*
      * Run CodeIntel local review.
      */
@@ -670,15 +714,16 @@ export async function POST(
      */
 
     const review =
-      await prisma.pRReview.create({
-        data: {
-          pullRequestId:
-            pullRequestRecord.id,
+  await prisma.pRReview.create({
+    data: {
+      pullRequestId:
+        pullRequestRecord.id,
 
-          score,
-          risk,
-          summary,
+      commitSha,
 
+      score,
+      risk,
+      summary,
           findings: {
             create: findings.map(
               (finding) => ({
