@@ -506,7 +506,23 @@ export async function POST(
     const githubPullRequest =
       githubPR.data;
 
-    const commitSha = githubPullRequest.head.sha;
+    const commitSha = String(
+  githubPullRequest.head?.sha || ""
+).trim();
+console.log(
+  "CodeIntel PR commit SHA:",
+  commitSha ? `${commitSha.slice(0, 12)}...` : "MISSING"
+);
+
+if (!commitSha) {
+  return NextResponse.json(
+    {
+      success: false,
+      error: "GitHub commit SHA could not be determined.",
+    },
+    { status: 500 }
+  );
+}
 
     /*
      * Create/update repository in PostgreSQL.
@@ -716,12 +732,11 @@ if (existingReview) {
     const review =
   await prisma.pRReview.create({
     data: {
-      pullRequestId:
-        pullRequestRecord.id,
+  pullRequestId: pullRequestRecord.id,
 
-      commitSha,
+  commitSha: commitSha,
 
-      score,
+  score,
       risk,
       summary,
           findings: {

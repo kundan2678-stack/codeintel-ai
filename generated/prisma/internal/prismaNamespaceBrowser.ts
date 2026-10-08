@@ -151,6 +151,7 @@ export type PullRequestScalarFieldEnum = (typeof PullRequestScalarFieldEnum)[key
 export const PRReviewScalarFieldEnum = {
   id: 'id',
   pullRequestId: 'pullRequestId',
+  commitSha: 'commitSha',
   score: 'score',
   risk: 'risk',
   summary: 'summary',

@@ -37,6 +37,7 @@ export type PRReviewSumAggregateOutputType = {
 export type PRReviewMinAggregateOutputType = {
   id: string | null
   pullRequestId: string | null
+  commitSha: string | null
   score: number | null
   risk: string | null
   summary: string | null
@@ -46,6 +47,7 @@ export type PRReviewMinAggregateOutputType = {
 export type PRReviewMaxAggregateOutputType = {
   id: string | null
   pullRequestId: string | null
+  commitSha: string | null
   score: number | null
   risk: string | null
   summary: string | null
@@ -55,6 +57,7 @@ export type PRReviewMaxAggregateOutputType = {
 export type PRReviewCountAggregateOutputType = {
   id: number
   pullRequestId: number
+  commitSha: number
   score: number
   risk: number
   summary: number
@@ -74,6 +77,7 @@ export type PRReviewSumAggregateInputType = {
 export type PRReviewMinAggregateInputType = {
   id?: true
   pullRequestId?: true
+  commitSha?: true
   score?: true
   risk?: true
   summary?: true
@@ -83,6 +87,7 @@ export type PRReviewMinAggregateInputType = {
 export type PRReviewMaxAggregateInputType = {
   id?: true
   pullRequestId?: true
+  commitSha?: true
   score?: true
   risk?: true
   summary?: true
@@ -92,6 +97,7 @@ export type PRReviewMaxAggregateInputType = {
 export type PRReviewCountAggregateInputType = {
   id?: true
   pullRequestId?: true
+  commitSha?: true
   score?: true
   risk?: true
   summary?: true
@@ -188,6 +194,7 @@ export type PRReviewGroupByArgs<ExtArgs extends runtime.Types.Extensions.Interna
 export type PRReviewGroupByOutputType = {
   id: string
   pullRequestId: string
+  commitSha: string | null
   score: number
   risk: string
   summary: string
@@ -220,6 +227,7 @@ export type PRReviewWhereInput = {
   NOT?: Prisma.PRReviewWhereInput | Prisma.PRReviewWhereInput[]
   id?: Prisma.StringFilter<"PRReview"> | string
   pullRequestId?: Prisma.StringFilter<"PRReview"> | string
+  commitSha?: Prisma.StringNullableFilter<"PRReview"> | string | null
   score?: Prisma.IntFilter<"PRReview"> | number
   risk?: Prisma.StringFilter<"PRReview"> | string
   summary?: Prisma.StringFilter<"PRReview"> | string
@@ -231,6 +239,7 @@ export type PRReviewWhereInput = {
 export type PRReviewOrderByWithRelationInput = {
   id?: Prisma.SortOrder
   pullRequestId?: Prisma.SortOrder
+  commitSha?: Prisma.SortOrderInput | Prisma.SortOrder
   score?: Prisma.SortOrder
   risk?: Prisma.SortOrder
   summary?: Prisma.SortOrder
@@ -241,21 +250,24 @@ export type PRReviewOrderByWithRelationInput = {
 
 export type PRReviewWhereUniqueInput = Prisma.AtLeast<{
   id?: string
+  pullRequestId_commitSha?: Prisma.PRReviewPullRequestIdCommitShaCompoundUniqueInput
   AND?: Prisma.PRReviewWhereInput | Prisma.PRReviewWhereInput[]
   OR?: Prisma.PRReviewWhereInput[]
   NOT?: Prisma.PRReviewWhereInput | Prisma.PRReviewWhereInput[]
   pullRequestId?: Prisma.StringFilter<"PRReview"> | string
+  commitSha?: Prisma.StringNullableFilter<"PRReview"> | string | null
   score?: Prisma.IntFilter<"PRReview"> | number
   risk?: Prisma.StringFilter<"PRReview"> | string
   summary?: Prisma.StringFilter<"PRReview"> | string
   createdAt?: Prisma.DateTimeFilter<"PRReview"> | Date | string
   pullRequest?: Prisma.XOR<Prisma.PullRequestScalarRelationFilter, Prisma.PullRequestWhereInput>
   findings?: Prisma.PRFindingListRelationFilter
-}, "id">
+}, "id" | "pullRequestId_commitSha">
 
 export type PRReviewOrderByWithAggregationInput = {
   id?: Prisma.SortOrder
   pullRequestId?: Prisma.SortOrder
+  commitSha?: Prisma.SortOrderInput | Prisma.SortOrder
   score?: Prisma.SortOrder
   risk?: Prisma.SortOrder
   summary?: Prisma.SortOrder
@@ -273,6 +285,7 @@ export type PRReviewScalarWhereWithAggregatesInput = {
   NOT?: Prisma.PRReviewScalarWhereWithAggregatesInput | Prisma.PRReviewScalarWhereWithAggregatesInput[]
   id?: Prisma.StringWithAggregatesFilter<"PRReview"> | string
   pullRequestId?: Prisma.StringWithAggregatesFilter<"PRReview"> | string
+  commitSha?: Prisma.StringNullableWithAggregatesFilter<"PRReview"> | string | null
   score?: Prisma.IntWithAggregatesFilter<"PRReview"> | number
   risk?: Prisma.StringWithAggregatesFilter<"PRReview"> | string
   summary?: Prisma.StringWithAggregatesFilter<"PRReview"> | string
@@ -281,6 +294,7 @@ export type PRReviewScalarWhereWithAggregatesInput = {
 
 export type PRReviewCreateInput = {
   id?: string
+  commitSha?: string | null
   score: number
   risk: string
   summary: string
@@ -292,6 +306,7 @@ export type PRReviewCreateInput = {
 export type PRReviewUncheckedCreateInput = {
   id?: string
   pullRequestId: string
+  commitSha?: string | null
   score: number
   risk: string
   summary: string
@@ -301,6 +316,7 @@ export type PRReviewUncheckedCreateInput = {
 
 export type PRReviewUpdateInput = {
   id?: Prisma.StringFieldUpdateOperationsInput | string
+  commitSha?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   score?: Prisma.IntFieldUpdateOperationsInput | number
   risk?: Prisma.StringFieldUpdateOperationsInput | string
   summary?: Prisma.StringFieldUpdateOperationsInput | string
@@ -312,6 +328,7 @@ export type PRReviewUpdateInput = {
 export type PRReviewUncheckedUpdateInput = {
   id?: Prisma.StringFieldUpdateOperationsInput | string
   pullRequestId?: Prisma.StringFieldUpdateOperationsInput | string
+  commitSha?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   score?: Prisma.IntFieldUpdateOperationsInput | number
   risk?: Prisma.StringFieldUpdateOperationsInput | string
   summary?: Prisma.StringFieldUpdateOperationsInput | string
@@ -322,6 +339,7 @@ export type PRReviewUncheckedUpdateInput = {
 export type PRReviewCreateManyInput = {
   id?: string
   pullRequestId: string
+  commitSha?: string | null
   score: number
   risk: string
   summary: string
@@ -330,6 +348,7 @@ export type PRReviewCreateManyInput = {
 
 export type PRReviewUpdateManyMutationInput = {
   id?: Prisma.StringFieldUpdateOperationsInput | string
+  commitSha?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   score?: Prisma.IntFieldUpdateOperationsInput | number
   risk?: Prisma.StringFieldUpdateOperationsInput | string
   summary?: Prisma.StringFieldUpdateOperationsInput | string
@@ -339,6 +358,7 @@ export type PRReviewUpdateManyMutationInput = {
 export type PRReviewUncheckedUpdateManyInput = {
   id?: Prisma.StringFieldUpdateOperationsInput | string
   pullRequestId?: Prisma.StringFieldUpdateOperationsInput | string
+  commitSha?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   score?: Prisma.IntFieldUpdateOperationsInput | number
   risk?: Prisma.StringFieldUpdateOperationsInput | string
   summary?: Prisma.StringFieldUpdateOperationsInput | string
@@ -355,9 +375,15 @@ export type PRReviewOrderByRelationAggregateInput = {
   _count?: Prisma.SortOrder
 }
 
+export type PRReviewPullRequestIdCommitShaCompoundUniqueInput = {
+  pullRequestId: string
+  commitSha: string
+}
+
 export type PRReviewCountOrderByAggregateInput = {
   id?: Prisma.SortOrder
   pullRequestId?: Prisma.SortOrder
+  commitSha?: Prisma.SortOrder
   score?: Prisma.SortOrder
   risk?: Prisma.SortOrder
   summary?: Prisma.SortOrder
@@ -371,6 +397,7 @@ export type PRReviewAvgOrderByAggregateInput = {
 export type PRReviewMaxOrderByAggregateInput = {
   id?: Prisma.SortOrder
   pullRequestId?: Prisma.SortOrder
+  commitSha?: Prisma.SortOrder
   score?: Prisma.SortOrder
   risk?: Prisma.SortOrder
   summary?: Prisma.SortOrder
@@ -380,6 +407,7 @@ export type PRReviewMaxOrderByAggregateInput = {
 export type PRReviewMinOrderByAggregateInput = {
   id?: Prisma.SortOrder
   pullRequestId?: Prisma.SortOrder
+  commitSha?: Prisma.SortOrder
   score?: Prisma.SortOrder
   risk?: Prisma.SortOrder
   summary?: Prisma.SortOrder
@@ -453,6 +481,7 @@ export type PRReviewUpdateOneRequiredWithoutFindingsNestedInput = {
 
 export type PRReviewCreateWithoutPullRequestInput = {
   id?: string
+  commitSha?: string | null
   score: number
   risk: string
   summary: string
@@ -462,6 +491,7 @@ export type PRReviewCreateWithoutPullRequestInput = {
 
 export type PRReviewUncheckedCreateWithoutPullRequestInput = {
   id?: string
+  commitSha?: string | null
   score: number
   risk: string
   summary: string
@@ -501,6 +531,7 @@ export type PRReviewScalarWhereInput = {
   NOT?: Prisma.PRReviewScalarWhereInput | Prisma.PRReviewScalarWhereInput[]
   id?: Prisma.StringFilter<"PRReview"> | string
   pullRequestId?: Prisma.StringFilter<"PRReview"> | string
+  commitSha?: Prisma.StringNullableFilter<"PRReview"> | string | null
   score?: Prisma.IntFilter<"PRReview"> | number
   risk?: Prisma.StringFilter<"PRReview"> | string
   summary?: Prisma.StringFilter<"PRReview"> | string
@@ -509,6 +540,7 @@ export type PRReviewScalarWhereInput = {
 
 export type PRReviewCreateWithoutFindingsInput = {
   id?: string
+  commitSha?: string | null
   score: number
   risk: string
   summary: string
@@ -519,6 +551,7 @@ export type PRReviewCreateWithoutFindingsInput = {
 export type PRReviewUncheckedCreateWithoutFindingsInput = {
   id?: string
   pullRequestId: string
+  commitSha?: string | null
   score: number
   risk: string
   summary: string
@@ -543,6 +576,7 @@ export type PRReviewUpdateToOneWithWhereWithoutFindingsInput = {
 
 export type PRReviewUpdateWithoutFindingsInput = {
   id?: Prisma.StringFieldUpdateOperationsInput | string
+  commitSha?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   score?: Prisma.IntFieldUpdateOperationsInput | number
   risk?: Prisma.StringFieldUpdateOperationsInput | string
   summary?: Prisma.StringFieldUpdateOperationsInput | string
@@ -553,6 +587,7 @@ export type PRReviewUpdateWithoutFindingsInput = {
 export type PRReviewUncheckedUpdateWithoutFindingsInput = {
   id?: Prisma.StringFieldUpdateOperationsInput | string
   pullRequestId?: Prisma.StringFieldUpdateOperationsInput | string
+  commitSha?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   score?: Prisma.IntFieldUpdateOperationsInput | number
   risk?: Prisma.StringFieldUpdateOperationsInput | string
   summary?: Prisma.StringFieldUpdateOperationsInput | string
@@ -561,6 +596,7 @@ export type PRReviewUncheckedUpdateWithoutFindingsInput = {
 
 export type PRReviewCreateManyPullRequestInput = {
   id?: string
+  commitSha?: string | null
   score: number
   risk: string
   summary: string
@@ -569,6 +605,7 @@ export type PRReviewCreateManyPullRequestInput = {
 
 export type PRReviewUpdateWithoutPullRequestInput = {
   id?: Prisma.StringFieldUpdateOperationsInput | string
+  commitSha?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   score?: Prisma.IntFieldUpdateOperationsInput | number
   risk?: Prisma.StringFieldUpdateOperationsInput | string
   summary?: Prisma.StringFieldUpdateOperationsInput | string
@@ -578,6 +615,7 @@ export type PRReviewUpdateWithoutPullRequestInput = {
 
 export type PRReviewUncheckedUpdateWithoutPullRequestInput = {
   id?: Prisma.StringFieldUpdateOperationsInput | string
+  commitSha?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   score?: Prisma.IntFieldUpdateOperationsInput | number
   risk?: Prisma.StringFieldUpdateOperationsInput | string
   summary?: Prisma.StringFieldUpdateOperationsInput | string
@@ -587,6 +625,7 @@ export type PRReviewUncheckedUpdateWithoutPullRequestInput = {
 
 export type PRReviewUncheckedUpdateManyWithoutPullRequestInput = {
   id?: Prisma.StringFieldUpdateOperationsInput | string
+  commitSha?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   score?: Prisma.IntFieldUpdateOperationsInput | number
   risk?: Prisma.StringFieldUpdateOperationsInput | string
   summary?: Prisma.StringFieldUpdateOperationsInput | string
@@ -627,6 +666,7 @@ export type PRReviewCountOutputTypeCountFindingsArgs<ExtArgs extends runtime.Typ
 export type PRReviewSelect<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = runtime.Types.Extensions.GetSelect<{
   id?: boolean
   pullRequestId?: boolean
+  commitSha?: boolean
   score?: boolean
   risk?: boolean
   summary?: boolean
@@ -639,6 +679,7 @@ export type PRReviewSelect<ExtArgs extends runtime.Types.Extensions.InternalArgs
 export type PRReviewSelectCreateManyAndReturn<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = runtime.Types.Extensions.GetSelect<{
   id?: boolean
   pullRequestId?: boolean
+  commitSha?: boolean
   score?: boolean
   risk?: boolean
   summary?: boolean
@@ -649,6 +690,7 @@ export type PRReviewSelectCreateManyAndReturn<ExtArgs extends runtime.Types.Exte
 export type PRReviewSelectUpdateManyAndReturn<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = runtime.Types.Extensions.GetSelect<{
   id?: boolean
   pullRequestId?: boolean
+  commitSha?: boolean
   score?: boolean
   risk?: boolean
   summary?: boolean
@@ -659,13 +701,14 @@ export type PRReviewSelectUpdateManyAndReturn<ExtArgs extends runtime.Types.Exte
 export type PRReviewSelectScalar = {
   id?: boolean
   pullRequestId?: boolean
+  commitSha?: boolean
   score?: boolean
   risk?: boolean
   summary?: boolean
   createdAt?: boolean
 }
 
-export type PRReviewOmit<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = runtime.Types.Extensions.GetOmit<"id" | "pullRequestId" | "score" | "risk" | "summary" | "createdAt", ExtArgs["result"]["pRReview"]>
+export type PRReviewOmit<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = runtime.Types.Extensions.GetOmit<"id" | "pullRequestId" | "commitSha" | "score" | "risk" | "summary" | "createdAt", ExtArgs["result"]["pRReview"]>
 export type PRReviewInclude<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = {
   pullRequest?: boolean | Prisma.PullRequestDefaultArgs<ExtArgs>
   findings?: boolean | Prisma.PRReview$findingsArgs<ExtArgs>
@@ -687,6 +730,7 @@ export type $PRReviewPayload<ExtArgs extends runtime.Types.Extensions.InternalAr
   scalars: runtime.Types.Extensions.GetPayloadResult<{
     id: string
     pullRequestId: string
+    commitSha: string | null
     score: number
     risk: string
     summary: string
@@ -1118,6 +1162,7 @@ export interface Prisma__PRReviewClient<T, Null = never, ExtArgs extends runtime
 export interface PRReviewFieldRefs {
   readonly id: Prisma.FieldRef<"PRReview", 'String'>
   readonly pullRequestId: Prisma.FieldRef<"PRReview", 'String'>
+  readonly commitSha: Prisma.FieldRef<"PRReview", 'String'>
   readonly score: Prisma.FieldRef<"PRReview", 'Int'>
   readonly risk: Prisma.FieldRef<"PRReview", 'String'>
   readonly summary: Prisma.FieldRef<"PRReview", 'String'>
