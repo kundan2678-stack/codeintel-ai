@@ -1,3 +1,4 @@
+
 import { NextResponse } from "next/server";
 import { Octokit } from "octokit";
 
@@ -7,14 +8,15 @@ export async function POST(request: Request) {
   try {
     const body = await request.json();
 
-    const repo = body.repo;
+    const repo = String(body.repo || "").trim();
     const number = Number(body.number);
 
-    if (!repo || !number) {
+    if (!repo || !Number.isInteger(number) || number < 1) {
       return NextResponse.json(
         {
           success: false,
-          error: "Repository and pull request number are required",
+          error:
+            "A valid repository and pull request number are required",
         },
         { status: 400 }
       );
@@ -34,11 +36,11 @@ export async function POST(request: Request) {
 
     const [owner, repoName] = repo.split("/");
 
-    if (!owner || !repoName) {
+    if (!owner || !repoName || repo.split("/").length !== 2) {
       return NextResponse.json(
         {
           success: false,
-          error: "Invalid repository format",
+          error: "Invalid repository format. Use owner/repository",
         },
         { status: 400 }
       );
@@ -48,14 +50,13 @@ export async function POST(request: Request) {
       auth: token,
     });
 
-    // Fetch PR files
-    const filesResponse =
-      await octokit.rest.pulls.listFiles({
-        owner,
-        repo: repoName,
-        pull_number: number,
-        per_page: 100,
-      });
+    // Fetch changed files from GitHub.
+    const filesResponse = await octokit.rest.pulls.listFiles({
+      owner,
+      repo: repoName,
+      pull_number: number,
+      per_page: 100,
+    });
 
     const files = filesResponse.data;
 
@@ -63,48 +64,47 @@ export async function POST(request: Request) {
       return NextResponse.json({
         success: true,
         message: "No changed files found in this pull request.",
+        repository: repo,
+        pullRequest: number,
+        filesAnalyzed: 0,
         review: null,
+        duplicate: false,
       });
     }
 
-    // Build PR diff
+    // Build a diff from the changed files.
     const diff = files
-      .map((file) => {
-        return [
+      .map((file) =>
+        [
           `FILE: ${file.filename}`,
           `STATUS: ${file.status}`,
           `ADDITIONS: ${file.additions}`,
           `DELETIONS: ${file.deletions}`,
           "",
           file.patch || "No patch available",
-        ].join("\n");
-      })
+        ].join("\n")
+      )
       .join("\n\n--------------------------------\n\n");
 
-    // Call existing CodeIntel review engine
-    const reviewUrl = new URL(
-      "/api/ai-review",
-      request.url
-    );
+    // Call the existing CodeIntel review engine.
+    const reviewUrl = new URL("/api/ai-review", request.url);
 
-    const reviewResponse = await fetch(
-      reviewUrl.toString(),
-      {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          repo,
-          number,
-          file: `Pull Request #${number}`,
-          language: "Multi-file GitHub Pull Request",
-          issue:
-            "Automatically review this GitHub Pull Request diff for bugs, security vulnerabilities, performance problems and maintainability issues.",
-          code: diff,
-        }),
-      }
-    );
+    const reviewResponse = await fetch(reviewUrl.toString(), {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        repo,
+        number,
+        file: `Pull Request #${number}`,
+        language: "Multi-file GitHub Pull Request",
+        issue:
+          "Automatically review this GitHub Pull Request diff for bugs, security vulnerabilities, performance problems and maintainability issues.",
+        code: diff,
+      }),
+      cache: "no-store",
+    });
 
     const reviewResult = await reviewResponse.json();
 
@@ -113,16 +113,20 @@ export async function POST(request: Request) {
         {
           success: false,
           error:
-            reviewResult.error ||
-            "Automatic review failed",
+            reviewResult.error || "Automatic review failed",
         },
         { status: 500 }
       );
     }
 
+    const duplicate = reviewResult.duplicate === true;
+
     return NextResponse.json({
       success: true,
-      message: "Automatic PR review completed",
+      message: duplicate
+        ? "This commit has already been reviewed."
+        : "Automatic PR review completed",
+      duplicate,
       repository: repo,
       pullRequest: number,
       filesAnalyzed: files.length,
@@ -130,10 +134,7 @@ export async function POST(request: Request) {
       database: reviewResult.database,
     });
   } catch (error) {
-    console.error(
-      "Automatic PR review error:",
-      error
-    );
+    console.error("Automatic PR review error:", error);
 
     return NextResponse.json(
       {
