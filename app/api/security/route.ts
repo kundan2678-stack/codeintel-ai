@@ -121,7 +121,6 @@ function scanFile(file: string, content: string): SecurityIssue[] {
   ];
 
   for (const rule of rules) {
-    // Create a fresh regex instance for each scan so lastIndex cannot leak.
     rule.regex.lastIndex = 0;
     let match: RegExpExecArray | null;
 
@@ -133,12 +132,13 @@ function scanFile(file: string, content: string): SecurityIssue[] {
         recommendation: rule.recommendation,
       });
 
-      // Defensive guard against accidental zero-length regex matches.
-      if (match[0].length === 0) rule.regex.lastIndex++;
+      if (match[0].length === 0) {
+        rule.regex.lastIndex++;
+      }
     }
   }
 
-  // Flag plain HTTP URLs, excluding localhost and loopback addresses.
+  // Detect HTTP URLs, excluding localhost and loopback.
   const httpRegex = /http:\/\/[^\s"'`<>]+/gi;
   let httpMatch: RegExpExecArray | null;
 
@@ -198,14 +198,19 @@ function scanFile(file: string, content: string): SecurityIssue[] {
           message: rule.message,
           recommendation: rule.recommendation,
         });
-        if (match[0].length === 0) rule.regex.lastIndex++;
+
+        if (match[0].length === 0) {
+          rule.regex.lastIndex++;
+        }
       }
     }
   }
 
   // Java-specific command execution check.
   if (file.toLowerCase().endsWith(".java")) {
-    const javaRegex = /\bRuntime\s*\.\s*getRuntime\s*\(\s*\)\s*\.\s*exec\s*\(/g;
+    const javaRegex =
+      /\bRuntime\s*\.\s*getRuntime\s*\(\s*\)\s*\.\s*exec\s*\(/g;
+
     let match: RegExpExecArray | null;
 
     while ((match = javaRegex.exec(content)) !== null) {
@@ -227,7 +232,10 @@ function deduplicateIssues(issues: SecurityIssue[]): SecurityIssue[] {
 
   for (const issue of issues) {
     const key = `${issue.file}:${issue.line}:${issue.type}`;
-    if (!unique.has(key)) unique.set(key, issue);
+
+    if (!unique.has(key)) {
+      unique.set(key, issue);
+    }
   }
 
   return Array.from(unique.values());
@@ -255,6 +263,7 @@ export async function GET(request: Request) {
     }
 
     const [owner, name, ...extra] = repo.split("/");
+
     if (!owner || !name || extra.length > 0) {
       return NextResponse.json(
         {
@@ -267,42 +276,86 @@ export async function GET(request: Request) {
 
     const octokit = new Octokit({ auth: token });
 
-    const repository = await octokit.request("GET /repos/{owner}/{repo}", {
-      owner,
-      repo: name,
-    });
+    const repository = await octokit.request(
+      "GET /repos/{owner}/{repo}",
+      {
+        owner,
+        repo: name,
+      }
+    );
 
     const branch = repository.data.default_branch;
+
     const branchResponse = await octokit.request(
       "GET /repos/{owner}/{repo}/branches/{branch}",
-      { owner, repo: name, branch }
+      {
+        owner,
+        repo: name,
+        branch,
+      }
     );
 
     const sha = branchResponse.data.commit.sha;
+
     const treeResponse = await octokit.request(
       "GET /repos/{owner}/{repo}/git/trees/{tree_sha}",
-      { owner, repo: name, tree_sha: sha, recursive: "true" }
+      {
+        owner,
+        repo: name,
+        tree_sha: sha,
+        recursive: "true",
+      }
     );
 
     if (treeResponse.data.truncated) {
-      console.warn(`Repository tree was truncated for ${owner}/${name}`);
+      console.warn(
+        `Repository tree was truncated for ${owner}/${name}`
+      );
     }
+
+    const excludedDirectories = new Set([
+      "node_modules",
+      ".next",
+      "dist",
+      "build",
+      ".git",
+      "__tests__",
+      "__test__",
+      "tests",
+      "test",
+      "__mocks__",
+      "coverage",
+    ]);
 
     const sourceFiles = treeResponse.data.tree
       .filter(
         (item) =>
           item.type === "blob" &&
           typeof item.path === "string" &&
-          SOURCE_EXTENSIONS.some((ext) => item.path!.toLowerCase().endsWith(ext))
+          SOURCE_EXTENSIONS.some((ext) =>
+            item.path!.toLowerCase().endsWith(ext)
+          )
       )
-      .filter(
-        (item) =>
-          !item.path!.startsWith("node_modules/") &&
-          !item.path!.startsWith(".next/") &&
-          !item.path!.startsWith("dist/") &&
-          !item.path!.startsWith("build/") &&
-          !item.path!.startsWith(".git/")
-      )
+      .filter((item) => {
+        const filePath = item.path!.toLowerCase();
+        const parts = filePath.split("/");
+        const fileName = parts[parts.length - 1];
+
+        const isExcludedDirectory = parts.some((part) =>
+          excludedDirectories.has(part)
+        );
+
+        const isTestFile =
+          /(?:^|[._-])(test|spec)\.(?:ts|tsx|js|jsx|py|java|c|cpp)$/.test(
+            fileName
+          );
+
+        const isBackupFile =
+          /(?:\.backup|\.bak|\.old|\.orig)(?:\.[^.]+)?$/.test(fileName) ||
+          fileName.includes(".backup.");
+
+        return !isExcludedDirectory && !isTestFile && !isBackupFile;
+      })
       .slice(0, 10);
 
     const fileResults = await Promise.all(
@@ -347,18 +400,35 @@ export async function GET(request: Request) {
       (file): file is NonNullable<typeof file> => file !== null
     );
 
-    // Deduplicate identical findings per file, line and issue type.
+    // Deduplicate findings per file, line, and issue type.
     for (const file of files) {
       file.issues = deduplicateIssues(file.issues);
     }
 
     const allIssues = files.flatMap((file) => file.issues);
-    const critical = allIssues.filter((i) => i.severity === "Critical").length;
-    const high = allIssues.filter((i) => i.severity === "High").length;
-    const medium = allIssues.filter((i) => i.severity === "Medium").length;
-    const low = allIssues.filter((i) => i.severity === "Low").length;
 
-    const penalty = critical * 20 + high * 10 + medium * 5 + low * 2;
+    const critical = allIssues.filter(
+      (issue) => issue.severity === "Critical"
+    ).length;
+
+    const high = allIssues.filter(
+      (issue) => issue.severity === "High"
+    ).length;
+
+    const medium = allIssues.filter(
+      (issue) => issue.severity === "Medium"
+    ).length;
+
+    const low = allIssues.filter(
+      (issue) => issue.severity === "Low"
+    ).length;
+
+    const penalty =
+      critical * 20 +
+      high * 10 +
+      medium * 5 +
+      low * 2;
+
     const securityScore = Math.max(0, 100 - penalty);
 
     return NextResponse.json({
@@ -382,8 +452,12 @@ export async function GET(request: Request) {
     });
   } catch (error) {
     console.error("Security analysis error:", error);
+
     return NextResponse.json(
-      { success: false, error: "Security analysis failed" },
+      {
+        success: false,
+        error: "Security analysis failed",
+      },
       { status: 500 }
     );
   }
