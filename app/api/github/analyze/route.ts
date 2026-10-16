@@ -1,4 +1,4 @@
-
+﻿
 import { NextResponse } from "next/server";
 import { Octokit } from "octokit";
 import { prisma } from "@/lib/prisma";
@@ -93,6 +93,17 @@ function analyzeCode(code: string, filePath: string) {
     ) {
       functionCount++;
     }
+
+    // Ignore scanner rules and their explanatory metadata
+    // to reduce obvious self-matches in heuristic scans.
+    const isRuleDescription =
+      /\.test\(\s*content\s*\)/.test(line) ||
+      /^\s*(?:title|explanation|recommendation|suggestedFix)\s*:/.test(line);
+
+    if (isRuleDescription) {
+      return;
+    }
+
 
     // Dynamic code execution
     if (/\beval\s*\(/.test(line)) {

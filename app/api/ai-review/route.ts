@@ -1,14 +1,11 @@
+
 import { NextResponse } from "next/server";
 import { Octokit } from "octokit";
 import { prisma } from "@/lib/prisma";
 
 export const runtime = "nodejs";
 
-type Severity =
-  | "Low"
-  | "Medium"
-  | "High"
-  | "Critical";
+type Severity = "Low" | "Medium" | "High" | "Critical";
 
 type Category =
   | "Security"
@@ -27,195 +24,332 @@ type Finding = {
   suggestedFix: string;
 };
 
-function analyzeDiff(code: string): Finding[] {
-  const findings: Finding[] = [];
+type ReviewRequestBody = {
+  code?: unknown;
+  repo?: unknown;
+  number?: unknown;
+};
 
-  const lines = code.split(/\r?\n/);
+function isRuleOrDescriptionLine(content: string): boolean {
+  const trimmed = content.trim();
+
+  // Avoid obvious self-matches from scanner implementation
+  // and from the scanner's own finding descriptions.
+  if (/\.test\s*\(\s*content\s*\)/.test(trimmed)) {
+    return true;
+  }
+
+  if (
+    /^\s*(?:title|explanation|recommendation|suggestedFix)\s*:/.test(
+      trimmed
+    )
+  ) {
+    return true;
+  }
+
+  return false;
+}
+
+function analyzeDiff(diff: string): Finding[] {
+  const findings: Finding[] = [];
+  const lines = diff.split(/\r?\n/);
 
   let currentFile = "Changed code";
 
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i];
 
+    // Support the FILE: format used by the application.
     if (line.startsWith("FILE:")) {
-      currentFile =
-        line.replace("FILE:", "").trim() ||
-        "Changed code";
-
+      currentFile = line.slice("FILE:".length).trim() || "Changed code";
       continue;
     }
 
-    const isAddedLine =
-      line.startsWith("+") &&
-      !line.startsWith("+++");
-
-    if (!isAddedLine) {
+    // Only inspect added lines in a unified diff.
+    if (!line.startsWith("+") || line.startsWith("+++")) {
       continue;
     }
 
     const content = line.slice(1);
+    const trimmed = content.trim();
 
-    if (/\beval\s*\(/.test(content)) {
-      findings.push({
-        category: "Security",
-        severity: "Critical",
-        title: "Unsafe eval() usage",
-        file: currentFile,
-        line: i + 1,
-        explanation:
-          "eval() executes dynamically supplied JavaScript and can lead to arbitrary code execution.",
-        recommendation:
-          "Avoid eval() and use explicit logic or a safe parser instead.",
-        suggestedFix:
-          "Remove eval() and replace it with validated explicit operations.",
-      });
+    // Skip obvious scanner rules and their metadata.
+    // This is a heuristic, not a complete parser.
+    if (isRuleOrDescriptionLine(content)) {
+      continue;
     }
 
-    if (/\bnew\s+Function\s*\(/.test(content)) {
-      findings.push({
-        category: "Security",
-        severity: "Critical",
-        title: "Dynamic Function construction",
-        file: currentFile,
-        line: i + 1,
-        explanation:
-          "new Function() dynamically creates executable JavaScript.",
-        recommendation:
-          "Avoid dynamic function construction.",
-        suggestedFix:
-          "Use a normal function with explicit parameters.",
-      });
+    // Ignore ordinary comment-only lines for most checks.
+    // TODO/FIXME is handled separately below.
+    const isCommentOnly =
+      /^\s*\/\//.test(content) ||
+      /^\s*\*/.test(content) ||
+      /^\s*\/\*/.test(content) ||
+      /^\s*#/.test(content);
+
+    if (!isCommentOnly) {
+      // Dynamic JavaScript execution.
+      if (/\beval\s*\(/.test(content)) {
+        findings.push({
+          category: "Security",
+          severity: "Critical",
+          title: "Unsafe dynamic evaluation",
+          file: currentFile,
+          line: i + 1,
+          explanation:
+            "Dynamic evaluation can execute supplied JavaScript and may allow arbitrary code execution.",
+          recommendation:
+            "Avoid dynamic evaluation and use explicit logic or a safe parser.",
+          suggestedFix:
+            "Replace dynamic evaluation with validated, explicit operations.",
+        });
+      }
+      if (/\bnew\s+Function\s*\(/.test(content)) {
+        findings.push({
+          category: "Security",
+          severity: "Critical",
+          title: "Dynamic function construction",
+          file: currentFile,
+          line: i + 1,
+          explanation:
+            "Dynamic function construction creates executable JavaScript at runtime.",
+          recommendation:
+            "Avoid dynamically constructing executable functions.",
+          suggestedFix:
+            "Use a normal function with explicit parameters and validated inputs.",
+        });
+      }
+
+      // Possible hardcoded credentials.
+      const possibleSecret =
+        /\b(?:api[_-]?key|secret|password|access[_-]?token|auth[_-]?token)\b\s*[:=]\s*["'`][^"'`]{8,}["'`]/i.test(
+          content
+        );
+
+      const looksLikePlaceholder =
+        /process\.env|example|placeholder|your[_-]|replace[_-]?me|changeme/i.test(
+          content
+        );
+
+      if (possibleSecret && !looksLikePlaceholder) {
+        findings.push({
+          category: "Security",
+          severity: "Critical",
+          title: "Possible hardcoded secret",
+          file: currentFile,
+          line: i + 1,
+          explanation:
+            "A credential-like value appears to be assigned directly in source code.",
+          recommendation:
+            "Verify the value and move real credentials to environment variables or a secret manager.",
+          suggestedFix:
+            "Read the credential from a server-side environment variable.",
+        });
+      }
+
+      // React raw HTML rendering.
+      if (/\bdangerouslySetInnerHTML\b/.test(content)) {
+        findings.push({
+          category: "Security",
+          severity: "High",
+          title: "Potential unsafe HTML rendering",
+          file: currentFile,
+          line: i + 1,
+          explanation:
+            "Raw HTML rendering can introduce cross-site scripting when the HTML is untrusted.",
+          recommendation:
+            "Prefer normal React rendering or sanitize untrusted HTML with a suitable sanitizer.",
+          suggestedFix:
+            "Render text normally or sanitize HTML before rendering it.",
+        });
+      }
+
+      // Direct DOM HTML assignment.
+      if (/\.innerHTML\s*=/.test(content)) {
+        findings.push({
+          category: "Security",
+          severity: "High",
+          title: "Direct HTML assignment",
+          file: currentFile,
+          line: i + 1,
+          explanation:
+            "Assigning untrusted HTML directly to a DOM element can introduce XSS.",
+          recommendation:
+            "Prefer safe DOM APIs and avoid inserting untrusted HTML.",
+          suggestedFix:
+            "Use textContent when HTML rendering is not required.",
+        });
+      }
+
+      // Operating-system command execution.
+      if (
+        /\bchild_process\b/.test(content) ||
+        /\bexec(?:Sync)?\s*\(/.test(content) ||
+        /\bspawn(?:Sync)?\s*\(/.test(content)
+      ) {
+        findings.push({
+          category: "Security",
+          severity: "High",
+          title: "Potential command execution",
+          file: currentFile,
+          line: i + 1,
+          explanation:
+            "Command execution may become dangerous when untrusted data controls the executable or arguments.",
+          recommendation:
+            "Verify input validation, argument handling, and whether shell execution is enabled.",
+          suggestedFix:
+            "Use a fixed executable with validated arguments and avoid shell interpolation.",
+        });
+      }
+
+      // Potential SQL injection.
+      if (
+        /\b(?:SELECT|INSERT|UPDATE|DELETE)\b/i.test(content) &&
+        (content.includes("+") || content.includes("${"))
+      ) {
+        findings.push({
+          category: "Security",
+          severity: "High",
+          title: "Potential SQL injection",
+          file: currentFile,
+          line: i + 1,
+          explanation:
+            "SQL-like text appears to be combined with dynamic values. This does not prove an injection vulnerability.",
+          recommendation:
+            "Check whether values are safely bound as query parameters.",
+          suggestedFix:
+            "Use parameterized queries or the application's ORM instead of concatenating untrusted input.",
+        });
+      }
+
+      // Maintainability checks.
+      if (/\bconsole\.log\s*\(/.test(content)) {
+        findings.push({
+          category: "Maintainability",
+          severity: "Low",
+          title: "Console logging",
+          file: currentFile,
+          line: i + 1,
+          explanation:
+            "Debug logging may create unnecessary production logs.",
+          recommendation:
+            "Remove unnecessary debug statements or use structured logging.",
+          suggestedFix:
+            "Use the application's logging utility where appropriate.",
+        });
+      }
+
+      if (/\bany\b/.test(content) && /\.(?:ts|tsx)$/.test(currentFile)) {
+        findings.push({
+          category: "Maintainability",
+          severity: "Low",
+          title: "Possible explicit any type",
+          file: currentFile,
+          line: i + 1,
+          explanation:
+            "The any type can weaken TypeScript type checking.",
+          recommendation:
+            "Use a specific type, interface, unknown, or a generic where appropriate.",
+          suggestedFix:
+            "Replace an actual any type annotation with a suitable explicit type.",
+        });
+      }
+
+      // Python-specific checks.
+      if (/\.(?:py)$/.test(currentFile)) {
+        if (/\bos\.system\s*\(/.test(content)) {
+          findings.push({
+            category: "Security",
+            severity: "High",
+            title: "Potential unsafe OS command",
+            file: currentFile,
+            line: i + 1,
+            explanation:
+              "os.system can execute operating-system commands.",
+            recommendation:
+              "Verify whether untrusted data can affect the executed command.",
+            suggestedFix:
+              "Prefer subprocess APIs with validated argument arrays and no shell.",
+          });
+        }
+
+        if (
+          /\bsubprocess\.\w+\s*\(/.test(content) &&
+          /\bshell\s*=\s*True\b/.test(content)
+        ) {
+          findings.push({
+            category: "Security",
+            severity: "High",
+            title: "Subprocess shell execution",
+            file: currentFile,
+            line: i + 1,
+            explanation:
+              "Using a shell with subprocess can create command-injection risks.",
+            recommendation:
+              "Avoid shell execution when possible and validate all inputs.",
+            suggestedFix:
+              "Use a fixed executable and a list of validated arguments.",
+          });
+        }
+
+        if (/\bpickle\.loads?\s*\(/.test(content)) {
+          findings.push({
+            category: "Security",
+            severity: "High",
+            title: "Potential unsafe deserialization",
+            file: currentFile,
+            line: i + 1,
+            explanation:
+              "Deserializing untrusted pickle data may execute malicious code.",
+            recommendation:
+              "Do not load pickle data from untrusted sources.",
+            suggestedFix:
+              "Use a safer data format for untrusted input.",
+          });
+        }
+
+        if (
+          /\byaml\.load\s*\(/.test(content) &&
+          !/\bSafeLoader\b/.test(content)
+        ) {
+          findings.push({
+            category: "Security",
+            severity: "High",
+            title: "Potential unsafe YAML loading",
+            file: currentFile,
+            line: i + 1,
+            explanation:
+              "YAML loading may be unsafe depending on the loader and input.",
+            recommendation:
+              "Use a safe YAML loader for untrusted input.",
+            suggestedFix:
+              "Use yaml.safe_load or the equivalent safe loader.",
+          });
+        }
+      }
+
+      // Java-specific command execution.
+      if (
+        /\.java$/.test(currentFile) &&
+        /Runtime\.getRuntime\s*\(\s*\)\s*\.exec\s*\(/.test(content)
+      ) {
+        findings.push({
+          category: "Security",
+          severity: "High",
+          title: "Potential Java command execution",
+          file: currentFile,
+          line: i + 1,
+          explanation:
+            "Runtime.exec can execute operating-system commands.",
+          recommendation:
+            "Verify command arguments and prevent untrusted input from controlling execution.",
+          suggestedFix:
+            "Use fixed commands and validated arguments.",
+        });
+      }
     }
 
-    if (
-      /\bapi[_-]?key\b\s*[:=]\s*["'`]/i.test(
-        content
-      ) ||
-      /\b(secret|password|token)\b\s*[:=]\s*["'`]/i.test(
-        content
-      )
-    ) {
-      findings.push({
-        category: "Security",
-        severity: "Critical",
-        title: "Possible hardcoded secret",
-        file: currentFile,
-        line: i + 1,
-        explanation:
-          "A credential-like value appears to be stored directly in source code.",
-        recommendation:
-          "Move secrets to environment variables or a secure secret manager.",
-        suggestedFix:
-          "Use process.env.SECRET_NAME instead of storing secrets in source code.",
-      });
-    }
-
-    if (/dangerouslySetInnerHTML/.test(content)) {
-      findings.push({
-        category: "Security",
-        severity: "High",
-        title: "Potential XSS risk",
-        file: currentFile,
-        line: i + 1,
-        explanation:
-          "dangerouslySetInnerHTML can render untrusted HTML.",
-        recommendation:
-          "Sanitize HTML or avoid raw HTML injection.",
-        suggestedFix:
-          "Prefer normal React rendering or sanitized HTML.",
-      });
-    }
-
-    if (/\.innerHTML\s*=/.test(content)) {
-      findings.push({
-        category: "Security",
-        severity: "High",
-        title: "Direct innerHTML assignment",
-        file: currentFile,
-        line: i + 1,
-        explanation:
-          "Direct HTML injection can create XSS vulnerabilities.",
-        recommendation:
-          "Prefer safe DOM APIs or framework-safe rendering.",
-        suggestedFix:
-          "Use textContent when HTML rendering is not required.",
-      });
-    }
-
-    if (
-      /\bchild_process\b/.test(content) ||
-      /\bexec\s*\(/.test(content) ||
-      /\bexecSync\s*\(/.test(content)
-    ) {
-      findings.push({
-        category: "Security",
-        severity: "High",
-        title: "Operating-system command execution",
-        file: currentFile,
-        line: i + 1,
-        explanation:
-          "Command execution can become a command-injection risk.",
-        recommendation:
-          "Avoid shell execution and validate command arguments.",
-        suggestedFix:
-          "Use fixed executables with validated arguments.",
-      });
-    }
-
-    if (
-      /\b(SELECT|INSERT|UPDATE|DELETE)\b/i.test(
-        content
-      ) &&
-      (content.includes("+") ||
-        content.includes("${"))
-    ) {
-      findings.push({
-        category: "Security",
-        severity: "High",
-        title: "Potential SQL injection",
-        file: currentFile,
-        line: i + 1,
-        explanation:
-          "SQL appears to be constructed dynamically.",
-        recommendation:
-          "Use parameterized queries or an ORM.",
-        suggestedFix:
-          "Replace string-built SQL with a parameterized query.",
-      });
-    }
-
-    if (/console\.log\s*\(/.test(content)) {
-      findings.push({
-        category: "Maintainability",
-        severity: "Low",
-        title: "Console logging in changed code",
-        file: currentFile,
-        line: i + 1,
-        explanation:
-          "Debug logging can create noisy production logs.",
-        recommendation:
-          "Remove unnecessary console logs or use structured logging.",
-        suggestedFix:
-          "Replace console.log with the application's logging utility.",
-      });
-    }
-
-    if (/: *any\b/.test(content)) {
-      findings.push({
-        category: "Maintainability",
-        severity: "Low",
-        title: "Explicit any type",
-        file: currentFile,
-        line: i + 1,
-        explanation:
-          "The any type removes TypeScript type safety.",
-        recommendation:
-          "Use a specific type, interface, unknown, or generic.",
-        suggestedFix:
-          "Replace any with an explicit TypeScript type.",
-      });
-    }
-
+    // TODO/FIXME markers are useful even when placed in comments.
     if (/\b(TODO|FIXME)\b/.test(content)) {
       findings.push({
         category: "Maintainability",
@@ -224,31 +358,11 @@ function analyzeDiff(code: string): Finding[] {
         file: currentFile,
         line: i + 1,
         explanation:
-          "The changed code contains a TODO/FIXME marker.",
+          "The changed line contains a TODO or FIXME marker.",
         recommendation:
-          "Complete the task or track it as an issue.",
+          "Complete the task or track it in the project's issue tracker.",
         suggestedFix:
-          "Implement the required change and remove the marker.",
-      });
-    }
-
-    if (
-      /\b(os\.system|pickle\.loads?|yaml\.load)\s*\(/.test(
-        content
-      )
-    ) {
-      findings.push({
-        category: "Security",
-        severity: "High",
-        title: "Potentially unsafe Python operation",
-        file: currentFile,
-        line: i + 1,
-        explanation:
-          "This operation can be unsafe with untrusted input.",
-        recommendation:
-          "Validate input and use safer alternatives.",
-        suggestedFix:
-          "Use safe serialization and validated subprocess APIs.",
+          "Implement the required change and remove the marker when resolved.",
       });
     }
   }
@@ -256,9 +370,7 @@ function analyzeDiff(code: string): Finding[] {
   return findings;
 }
 
-function scoreFindings(
-  findings: Finding[]
-): number {
+function scoreFindings(findings: Finding[]): number {
   let score = 100;
 
   for (const finding of findings) {
@@ -273,28 +385,41 @@ function scoreFindings(
     }
   }
 
-  return Math.max(
-    0,
-    Math.min(100, score)
-  );
+  return Math.max(0, Math.min(100, score));
 }
 
-function riskFromScore(
-  score: number
-): Severity {
+function riskFromScore(score: number): Severity {
   if (score < 40) return "Critical";
   if (score < 60) return "High";
   if (score < 80) return "Medium";
-
   return "Low";
+}
+
+function parseRepositoryName(value: unknown): {
+  owner: string;
+  name: string;
+} | null {
+  if (typeof value !== "string") return null;
+
+  const parts = value.trim().split("/");
+
+  if (
+    parts.length !== 2 ||
+    !/^[a-zA-Z0-9_.-]+$/.test(parts[0]) ||
+    !/^[a-zA-Z0-9_.-]+$/.test(parts[1])
+  ) {
+    return null;
+  }
+
+  return { owner: parts[0], name: parts[1] };
 }
 
 export async function GET(request: Request) {
   try {
     const { searchParams } = new URL(request.url);
-
     const repo = searchParams.get("repo");
     const numberParam = searchParams.get("number");
+    const number = Number(numberParam);
 
     if (!repo || !numberParam) {
       return NextResponse.json(
@@ -306,9 +431,17 @@ export async function GET(request: Request) {
       );
     }
 
-    const number = Number(numberParam);
+    if (!parseRepositoryName(repo)) {
+      return NextResponse.json(
+        {
+          success: false,
+          error: "Invalid repository format. Use owner/repository.",
+        },
+        { status: 400 }
+      );
+    }
 
-    if (!Number.isInteger(number)) {
+    if (!Number.isSafeInteger(number) || number < 1) {
       return NextResponse.json(
         {
           success: false,
@@ -319,79 +452,65 @@ export async function GET(request: Request) {
     }
 
     const repository = await prisma.repository.findUnique({
-      where: {
-        fullName: repo,
-      },
+      where: { fullName: repo },
     });
 
     if (!repository) {
       return NextResponse.json({
         success: true,
         review: null,
+        history: [],
       });
     }
 
-    const pullRequest =
-      await prisma.pullRequest.findUnique({
-        where: {
-          repositoryId_number: {
-            repositoryId: repository.id,
-            number,
-          },
+    const pullRequest = await prisma.pullRequest.findUnique({
+      where: {
+        repositoryId_number: {
+          repositoryId: repository.id,
+          number,
         },
-        include: {
-          reviews: {
-            orderBy: {
-              createdAt: "desc",
-            },
-            take: 10,
-            include: {
-              findings: true,
-            },
-          },
+      },
+      include: {
+        reviews: {
+          orderBy: { createdAt: "desc" },
+          take: 10,
+          include: { findings: true },
         },
-      });
+      },
+    });
 
     if (!pullRequest || pullRequest.reviews.length === 0) {
       return NextResponse.json({
         success: true,
         review: null,
+        history: [],
       });
     }
 
+    const reviews = pullRequest.reviews;
+    const latestReview = reviews[0];
 
-const reviews = pullRequest.reviews;
-
-return NextResponse.json({
-  success: true,
-
-  review:
-    reviews.length > 0
-      ? {
-          id: reviews[0].id,
-          summary: reviews[0].summary,
-          risk: reviews[0].risk,
-          score: reviews[0].score,
-          findings: reviews[0].findings,
-          createdAt: reviews[0].createdAt,
-        }
-      : null,
-
-  history: reviews.map((review) => ({
-    id: review.id,
-    summary: review.summary,
-    risk: review.risk,
-    score: review.score,
-    findingsCount:
-      review.findings.length,
-    createdAt: review.createdAt,
-  })),
-});
+    return NextResponse.json({
+      success: true,
+      review: {
+        id: latestReview.id,
+        summary: latestReview.summary,
+        risk: latestReview.risk,
+        score: latestReview.score,
+        findings: latestReview.findings,
+        createdAt: latestReview.createdAt,
+      },
+      history: reviews.map((review) => ({
+        id: review.id,
+        summary: review.summary,
+        risk: review.risk,
+        score: review.score,
+        findingsCount: review.findings.length,
+        createdAt: review.createdAt,
+      })),
+    });
   } catch (error) {
-    console.error(
-      "Saved PR review error:",
-      error
-    );
+    console.error("Saved PR review error:", error);
 
     return NextResponse.json(
       {
@@ -403,17 +522,24 @@ return NextResponse.json({
   }
 }
 
-export async function POST(
-  request: Request
-) {
+export async function POST(request: Request) {
   try {
-    const body = await request.json();
+    const parsedBody: unknown = await request.json();
 
     if (
-      !body ||
-      typeof body.code !== "string" ||
-      !body.code.trim()
+      !parsedBody ||
+      typeof parsedBody !== "object" ||
+      Array.isArray(parsedBody)
     ) {
+      return NextResponse.json(
+        { success: false, error: "Invalid request body." },
+        { status: 400 }
+      );
+    }
+
+    const body = parsedBody as ReviewRequestBody;
+
+    if (typeof body.code !== "string" || !body.code.trim()) {
       return NextResponse.json(
         {
           success: false,
@@ -425,37 +551,32 @@ export async function POST(
 
     const repo =
       typeof body.repo === "string"
-        ? body.repo
+        ? body.repo.trim()
         : "kundan2678-stack/codeintel-ai";
+
+    const parsedRepo = parseRepositoryName(repo);
+
+    if (!parsedRepo) {
+      return NextResponse.json(
+        {
+          success: false,
+          error: "Repository must be in owner/repository format.",
+        },
+        { status: 400 }
+      );
+    }
 
     const number = Number(body.number);
 
-    if (!Number.isInteger(number)) {
+    if (!Number.isSafeInteger(number) || number < 1) {
       return NextResponse.json(
         {
           success: false,
-          error: "Pull request number is required.",
+          error: "A valid pull request number is required.",
         },
         { status: 400 }
       );
     }
-
-    const [owner, repoName] = repo.split("/");
-
-    if (!owner || !repoName) {
-      return NextResponse.json(
-        {
-          success: false,
-          error:
-            "Repository must be in owner/repository format.",
-        },
-        { status: 400 }
-      );
-    }
-
-    /*
-     * GitHub client
-     */
 
     const token = process.env.GITHUB_TOKEN;
 
@@ -469,342 +590,196 @@ export async function POST(
       );
     }
 
-    const octokit = new Octokit({
-      auth: token,
+    const octokit = new Octokit({ auth: token });
+    const { owner, name: repoName } = parsedRepo;
+
+    const [githubRepository, githubPR] = await Promise.all([
+      octokit.request("GET /repos/{owner}/{repo}", {
+        owner,
+        repo: repoName,
+      }),
+      octokit.request("GET /repos/{owner}/{repo}/pulls/{pull_number}", {
+        owner,
+        repo: repoName,
+        pull_number: number,
+      }),
+    ]);
+
+    const githubRepo = githubRepository.data;
+    const githubPullRequest = githubPR.data;
+
+    const commitSha = String(githubPullRequest.head?.sha || "").trim();
+
+    if (!commitSha) {
+      return NextResponse.json(
+        {
+          success: false,
+          error: "GitHub commit SHA could not be determined.",
+        },
+        { status: 502 }
+      );
+    }
+
+    const repositoryRecord = await prisma.repository.upsert({
+      where: {
+        githubId: String(githubRepo.id),
+      },
+      update: {
+        name: githubRepo.name,
+        fullName: githubRepo.full_name,
+        description: githubRepo.description,
+        language: githubRepo.language,
+        stars: githubRepo.stargazers_count,
+        forks: githubRepo.forks_count,
+        url: githubRepo.html_url,
+        isPrivate: githubRepo.private,
+      },
+      create: {
+        githubId: String(githubRepo.id),
+        name: githubRepo.name,
+        fullName: githubRepo.full_name,
+        description: githubRepo.description,
+        language: githubRepo.language,
+        stars: githubRepo.stargazers_count,
+        forks: githubRepo.forks_count,
+        url: githubRepo.html_url,
+        isPrivate: githubRepo.private,
+      },
     });
 
-    /*
-     * Get repository from GitHub
-     */
-
-    const githubRepository =
-      await octokit.request(
-        "GET /repos/{owner}/{repo}",
-        {
-          owner,
-          repo: repoName,
-        }
-      );
-
-    /*
-     * Get pull request from GitHub
-     */
-
-    const githubPR =
-      await octokit.request(
-        "GET /repos/{owner}/{repo}/pulls/{pull_number}",
-        {
-          owner,
-          repo: repoName,
-          pull_number: number,
-        }
-      );
-
-    const githubRepo =
-      githubRepository.data;
-
-    const githubPullRequest =
-      githubPR.data;
-
-    const commitSha = String(
-  githubPullRequest.head?.sha || ""
-).trim();
-console.log(
-  "CodeIntel PR commit SHA:",
-  commitSha ? `${commitSha.slice(0, 12)}...` : "MISSING"
-);
-
-if (!commitSha) {
-  return NextResponse.json(
-    {
-      success: false,
-      error: "GitHub commit SHA could not be determined.",
-    },
-    { status: 500 }
-  );
-}
-
-    /*
-     * Create/update repository in PostgreSQL.
-     */
-
-    const repositoryRecord =
-      await prisma.repository.upsert({
-        where: {
-          githubId: String(
-            githubRepo.id
-          ),
+    const pullRequestRecord = await prisma.pullRequest.upsert({
+      where: {
+        repositoryId_number: {
+          repositoryId: repositoryRecord.id,
+          number: githubPullRequest.number,
         },
-
-        update: {
-          name: githubRepo.name,
-          fullName:
-            githubRepo.full_name,
-          description:
-            githubRepo.description,
-          language:
-            githubRepo.language,
-          stars:
-            githubRepo.stargazers_count,
-          forks:
-            githubRepo.forks_count,
-          url:
-            githubRepo.html_url,
-          isPrivate:
-            githubRepo.private,
+      },
+      update: {
+        githubId: String(githubPullRequest.id),
+        title: githubPullRequest.title,
+        body: githubPullRequest.body,
+        state: githubPullRequest.state,
+        author: githubPullRequest.user?.login || "unknown",
+        branch: githubPullRequest.head.ref,
+        baseBranch: githubPullRequest.base.ref,
+        additions: githubPullRequest.additions,
+        deletions: githubPullRequest.deletions,
+        changedFiles: githubPullRequest.changed_files,
+        updatedAt: new Date(githubPullRequest.updated_at),
+      },
+      create: {
+        githubId: String(githubPullRequest.id),
+        number: githubPullRequest.number,
+        title: githubPullRequest.title,
+        body: githubPullRequest.body,
+        state: githubPullRequest.state,
+        author: githubPullRequest.user?.login || "unknown",
+        branch: githubPullRequest.head.ref,
+        baseBranch: githubPullRequest.base.ref,
+        additions: githubPullRequest.additions,
+        deletions: githubPullRequest.deletions,
+        changedFiles: githubPullRequest.changed_files,
+        repository: {
+          connect: { id: repositoryRecord.id },
         },
+        createdAt: new Date(githubPullRequest.created_at),
+        updatedAt: new Date(githubPullRequest.updated_at),
+      },
+    });
 
-        create: {
-          githubId: String(
-            githubRepo.id
-          ),
-          name: githubRepo.name,
-          fullName:
-            githubRepo.full_name,
-          description:
-            githubRepo.description,
-          language:
-            githubRepo.language,
-          stars:
-            githubRepo.stargazers_count,
-          forks:
-            githubRepo.forks_count,
-          url:
-            githubRepo.html_url,
-          isPrivate:
-            githubRepo.private,
+    // Do not create duplicate reviews for the same PR commit.
+    const existingReview = await prisma.pRReview.findFirst({
+      where: {
+        pullRequestId: pullRequestRecord.id,
+        commitSha,
+      },
+      include: { findings: true },
+      orderBy: { createdAt: "desc" },
+    });
+
+    if (existingReview) {
+      return NextResponse.json({
+        success: true,
+        message: "This commit has already been reviewed.",
+        repository: repo,
+        pullRequest: number,
+        review: {
+          id: existingReview.id,
+          summary: existingReview.summary,
+          risk: existingReview.risk,
+          score: existingReview.score,
+          findings: existingReview.findings,
+          createdAt: existingReview.createdAt,
         },
+        database: {
+          repositoryId: repositoryRecord.id,
+          pullRequestId: pullRequestRecord.id,
+          reviewId: existingReview.id,
+        },
+        duplicate: true,
       });
+    }
 
-    /*
-     * Create/update Pull Request in PostgreSQL.
-     */
-
-    const pullRequestRecord =
-      await prisma.pullRequest.upsert({
-        where: {
-          repositoryId_number: {
-            repositoryId:
-              repositoryRecord.id,
-            number:
-              githubPullRequest.number,
-          },
-        },
-
-        update: {
-          githubId: String(
-            githubPullRequest.id
-          ),
-          title:
-            githubPullRequest.title,
-          body:
-            githubPullRequest.body,
-          state:
-            githubPullRequest.state,
-          author:
-            githubPullRequest.user?.login ||
-            "unknown",
-          branch:
-            githubPullRequest.head.ref,
-          baseBranch:
-            githubPullRequest.base.ref,
-          additions:
-            githubPullRequest.additions,
-          deletions:
-            githubPullRequest.deletions,
-          changedFiles:
-            githubPullRequest.changed_files,
-          updatedAt:
-            new Date(
-              githubPullRequest.updated_at
-            ),
-        },
-
-        create: {
-          githubId: String(
-            githubPullRequest.id
-          ),
-          number:
-            githubPullRequest.number,
-          title:
-            githubPullRequest.title,
-          body:
-            githubPullRequest.body,
-          state:
-            githubPullRequest.state,
-          author:
-            githubPullRequest.user?.login ||
-            "unknown",
-          branch:
-            githubPullRequest.head.ref,
-          baseBranch:
-            githubPullRequest.base.ref,
-          additions:
-            githubPullRequest.additions,
-          deletions:
-            githubPullRequest.deletions,
-          changedFiles:
-            githubPullRequest.changed_files,
-          repository: {
-            connect: {
-              id: repositoryRecord.id,
-            },
-          },
-          createdAt:
-            new Date(
-              githubPullRequest.created_at
-            ),
-          updatedAt:
-            new Date(
-              githubPullRequest.updated_at
-            ),
-        },
-      });
-
-
-
-    /*
- * Prevent duplicate reviews for the same PR commit.
- */
-
-const existingReview =
-  await prisma.pRReview.findFirst({
-    where: {
-      pullRequestId: pullRequestRecord.id,
-      commitSha,
-    },
-    include: {
-      findings: true,
-    },
-    orderBy: {
-      createdAt: "desc",
-    },
-  });
-
-if (existingReview) {
-  return NextResponse.json({
-    success: true,
-    message: "This commit has already been reviewed.",
-    repository: repo,
-    pullRequest: number,
-    review: {
-      id: existingReview.id,
-      summary: existingReview.summary,
-      risk: existingReview.risk,
-      score: existingReview.score,
-      findings: existingReview.findings,
-      createdAt: existingReview.createdAt,
-    },
-    database: {
-      repositoryId: repositoryRecord.id,
-      pullRequestId: pullRequestRecord.id,
-      reviewId: existingReview.id,
-    },
-    duplicate: true,
-  });
-}
-    /*
-     * Run CodeIntel local review.
-     */
-
-    const findings =
-      analyzeDiff(body.code);
-
-    const score =
-      scoreFindings(findings);
-
-    const risk =
-      riskFromScore(score);
+    const findings = analyzeDiff(body.code);
+    const score = scoreFindings(findings);
+    const risk = riskFromScore(score);
 
     const summary =
       findings.length === 0
-        ? "No major issues were detected in the analyzed pull request."
+        ? "No major issues were detected by the heuristic checks."
         : `Detected ${findings.length} potential issue${
-            findings.length === 1
-              ? ""
-              : "s"
-          } across the changed code.`;
+            findings.length === 1 ? "" : "s"
+          } in the changed code. Manual verification is recommended.`;
 
-    /*
-     * Save review + findings.
-     */
-
-    const review =
-  await prisma.pRReview.create({
-    data: {
-  pullRequestId: pullRequestRecord.id,
-
-  commitSha: commitSha,
-
-  score,
-      risk,
-      summary,
-          findings: {
-            create: findings.map(
-              (finding) => ({
-                category:
-                  finding.category,
-                severity:
-                  finding.severity,
-                title:
-                  finding.title,
-                file:
-                  finding.file,
-                line:
-                  finding.line,
-                explanation:
-                  finding.explanation,
-                recommendation:
-                  finding.recommendation,
-                suggestedFix:
-                  finding.suggestedFix,
-              })
-            ),
-          },
+    const review = await prisma.pRReview.create({
+      data: {
+        pullRequestId: pullRequestRecord.id,
+        commitSha,
+        score,
+        risk,
+        summary,
+        findings: {
+          create: findings.map((finding) => ({
+            category: finding.category,
+            severity: finding.severity,
+            title: finding.title,
+            file: finding.file,
+            line: finding.line,
+            explanation: finding.explanation,
+            recommendation: finding.recommendation,
+            suggestedFix: finding.suggestedFix,
+          })),
         },
-
-        include: {
-          findings: true,
-        },
-      });
-
-    return NextResponse.json({
-      success: true,
-
-      review: {
-        id: review.id,
-        summary: review.summary,
-        risk: review.risk,
-        score: review.score,
-        findings: review.findings,
-        createdAt:
-          review.createdAt,
       },
-
-      database: {
-        repositoryId:
-          repositoryRecord.id,
-
-        pullRequestId:
-          pullRequestRecord.id,
-
-        reviewId:
-          review.id,
-      },
+      include: { findings: true },
     });
-  } catch (error) {
-    console.error(
-      "Local PR review error:",
-      error
+
+    return NextResponse.json(
+      {
+        success: true,
+        review: {
+          id: review.id,
+          summary: review.summary,
+          risk: review.risk,
+          score: review.score,
+          findings: review.findings,
+          createdAt: review.createdAt,
+        },
+        database: {
+          repositoryId: repositoryRecord.id,
+          pullRequestId: pullRequestRecord.id,
+          reviewId: review.id,
+        },
+      },
+      { status: 201 }
     );
+  } catch (error) {
+    console.error("Local PR review error:", error);
 
     return NextResponse.json(
       {
         success: false,
-        error:
-          error instanceof Error
-            ? error.message
-            : "Local PR review failed.",
+        error: "Local PR review failed. Check the server logs.",
       },
       { status: 500 }
     );
